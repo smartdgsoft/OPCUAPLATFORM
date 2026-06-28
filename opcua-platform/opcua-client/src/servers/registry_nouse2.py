@@ -235,19 +235,19 @@ class OPCUAServerRegistry:
 
                 subscribed = 0
                 for tag in cfg.tags:
+                    node = client.get_node(tag["node_id"])
                     try:
-                        node = client.get_node(tag["node_id"])
-                        # Use the high-level API: subscribe_data_change handles
-                        # MonitoringParameters internally across asyncua versions.
-                        handle = await sub.subscribe_data_change(node)
+                        params = ua.MonitoringParameters(
+                            sampling_interval=float(tag.get("sample_interval_ms", 1000)),
+                            queue_size=10,
+                            discard_oldest=True,
+                        )
+                        handle = await sub.subscribe_data_change(node, monitoring_parameters=params)
                         tag_map[handle] = tag
-                        deadband_map[handle] = tag.get("deadband_value", 0.0) or 0.0
+                        deadband_map[handle] = tag.get("deadband_value", 0.0)
                         subscribed += 1
-                        logger.info("tag_subscribed", node_id=tag["node_id"],
-                                    display_name=tag.get("display_name"))
                     except Exception as exc:
-                        logger.error("subscribe_failed", node_id=tag["node_id"],
-                                     error=str(exc))
+                        logger.error("subscribe_failed", node_id=tag["node_id"], error=str(exc))
                 logger.info("subscriptions_active", server_id=server_id,
                             subscribed=subscribed, total=len(cfg.tags))
             else:
