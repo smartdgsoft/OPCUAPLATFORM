@@ -107,8 +107,8 @@ GROUP BY 1, 2
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('tag_values_1min',
-    start_offset => INTERVAL '1 hour',
-    end_offset   => INTERVAL '2 minutes',
+    start_offset => INTERVAL '30 minutes',
+    end_offset   => INTERVAL '5 minute',
     schedule_interval => INTERVAL '1 minute'
 );
 
@@ -127,8 +127,8 @@ GROUP BY 1, 2
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('tag_values_1hour',
-    start_offset => INTERVAL '1 day',
-    end_offset   => INTERVAL '2 hours',
+    start_offset => INTERVAL '2 hours',
+    end_offset   => INTERVAL '1 hour',
     schedule_interval => INTERVAL '1 hour'
 );
 
@@ -147,8 +147,8 @@ GROUP BY 1, 2
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('tag_values_1day',
-    start_offset => INTERVAL '30 days',
-    end_offset   => INTERVAL '2 days',
+    start_offset => INTERVAL '2 days',
+    end_offset   => INTERVAL '1 day',
     schedule_interval => INTERVAL '1 day'
 );
 
@@ -212,7 +212,7 @@ INSERT INTO users (email, username, hashed_password, full_name, role_id)
 VALUES (
     'admin@opcua.local',
     'admin',
-    '$2b$12$k.IgJ9GUZHvmim96mH7Pk.4cNFCU84/AbStsHzNVkeFfoRm8pioJq',
+    '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQyCgaJ5BnSomCvhJxCslL.Iy',
     'System Administrator',
     1
 );
