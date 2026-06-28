@@ -162,27 +162,20 @@ class OPCUAServerRegistry:
         state = self._servers[server_id]
         cfg = state.config
 
-        logger.info("connection_loop_starting", server_id=server_id, url=cfg.endpoint_url)
-
         while self._running and cfg.enabled:
             try:
-                logger.info("connection_attempt", server_id=server_id, url=cfg.endpoint_url)
-                SERVER_RECONNECTS.labels(server_id=server_id).inc()
-                await self._connect(server_id)
+                async for attempt in AsyncRetrying(
+                    stop=stop_never,
+                    wait=wait_exponential(multiplier=1, min=2, max=60),
+                    reraise=False,
+                ):
+                    with attempt:
+                        SERVER_RECONNECTS.labels(server_id=server_id).inc()
+                        await self._connect(server_id)
             except Exception as exc:
                 state.last_error = str(exc)
-                state.connected = False
                 SERVER_CONNECTED.labels(server_id=server_id).set(0)
-                logger.error("connection_failed",
-                             server_id=server_id,
-                             url=cfg.endpoint_url,
-                             error_type=type(exc).__name__,
-                             error=str(exc))
-                try:
-                    await self._publish_server_status(server_id, False, str(exc))
-                except Exception:
-                    pass
-                # Exponential-ish backoff before retry
+                await self._publish_server_status(server_id, False, str(exc))
                 await asyncio.sleep(5)
 
     async def _connect(self, server_id: str) -> None:
