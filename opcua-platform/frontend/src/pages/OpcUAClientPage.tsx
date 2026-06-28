@@ -910,7 +910,7 @@ function SecurityTab() {
                   alignItems: "center", justifyContent: "center" }}>{step}</span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{title}</span>
               </div>
-              <pre style={{ fontSize: 11, color: "#374151", background: "#1e293b", color: "#e2e8f0",
+              <pre style={{ fontSize: 11, color: "#374151", background: "#1e293b", 
                 padding: 10, borderRadius: 6, overflow: "auto", margin: 0, lineHeight: 1.6 }}>
                 {cmd}
               </pre>
