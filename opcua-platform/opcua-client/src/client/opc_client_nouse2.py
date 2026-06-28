@@ -56,66 +56,52 @@ class OPCUASubHandler:
         self._last_values: Dict[int, float] = {}
 
     def datachange_notification(
-        self, node: Node, val: Any, data: Any
+        self, node: Node, val: Any, data: ua.DataChangeNotification
     ) -> None:
+        handle = data.monitored_item.ClientHandle
+        tag_meta = self._tag_map.get(handle)
+        if tag_meta is None:
+            return
+
+        raw_value = val
+        node_id = tag_meta["node_id"]
+        VALUES_RECEIVED.labels(node_id=node_id).inc()
+
+        # ── Dead-band filter ─────────────────────────────────────────
+        deadband = self._deadband_map.get(handle, 0.0)
+        if deadband > 0 and isinstance(raw_value, (int, float)):
+            last = self._last_values.get(handle)
+            if last is not None and abs(raw_value - last) < deadband:
+                VALUES_FILTERED.inc()
+                return
+            self._last_values[handle] = float(raw_value)
+
+        # ── OPC UA quality from StatusCode ────────────────────────────
+        quality = 192  # Good
+        if hasattr(data, "monitored_item") and hasattr(data.monitored_item, "Value"):
+            mv = data.monitored_item.Value
+            if hasattr(mv, "StatusCode"):
+                quality = mv.StatusCode.value & 0xFFFF
+
+        source_ts = None
+        if hasattr(data, "monitored_item") and hasattr(data.monitored_item, "Value"):
+            mv = data.monitored_item.Value
+            if hasattr(mv, "SourceTimestamp") and mv.SourceTimestamp:
+                source_ts = mv.SourceTimestamp
+
+        tv = TagValue(
+            time=datetime.now(tz=timezone.utc),
+            tag_id=tag_meta["tag_id"],
+            node_id=node_id,
+            raw_value=raw_value,
+            quality=quality,
+            source_timestamp=source_ts,
+        )
+
         try:
-            # Resolve the client handle from the DataChangeNotif structure.
-            handle = None
-            mi = getattr(data, "monitored_item", None)
-            if mi is not None:
-                handle = getattr(mi, "ClientHandle", None)
-            if handle is None:
-                return
-            tag_meta = self._tag_map.get(handle)
-            if tag_meta is None:
-                return
-
-            raw_value = val
-            node_id = tag_meta["node_id"]
-            try:
-                VALUES_RECEIVED.labels(node_id=node_id).inc()
-            except Exception:
-                pass
-
-            # ── Dead-band filter ─────────────────────────────────────────
-            deadband = self._deadband_map.get(handle, 0.0)
-            if deadband and isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
-                last = self._last_values.get(handle)
-                if last is not None and abs(raw_value - last) < deadband:
-                    VALUES_FILTERED.inc()
-                    return
-                self._last_values[handle] = float(raw_value)
-
-            # ── Quality + source timestamp (best-effort) ─────────────────
-            quality = 192  # Good
-            source_ts = None
-            try:
-                if mi is not None and getattr(mi, "Value", None) is not None:
-                    mv = mi.Value
-                    sc = getattr(mv, "StatusCode", None)
-                    if sc is not None and hasattr(sc, "value"):
-                        quality = sc.value & 0xFFFF
-                    st = getattr(mv, "SourceTimestamp", None)
-                    if st:
-                        source_ts = st
-            except Exception:
-                pass
-
-            tv = TagValue(
-                time=datetime.now(tz=timezone.utc),
-                tag_id=tag_meta["tag_id"],
-                node_id=node_id,
-                raw_value=raw_value,
-                quality=quality,
-                source_timestamp=source_ts,
-            )
-
-            try:
-                self._queue.put_nowait(tv)
-            except asyncio.QueueFull:
-                logger.warning("ingest_queue_full", node_id=node_id)
-        except Exception as exc:
-            logger.error("datachange_handler_error", error=str(exc))
+            self._queue.put_nowait(tv)
+        except asyncio.QueueFull:
+            logger.warning("ingest_queue_full", node_id=node_id)
 
     def event_notification(self, event: ua.EventNotificationList) -> None:
         logger.debug("opc_event", event=event)
