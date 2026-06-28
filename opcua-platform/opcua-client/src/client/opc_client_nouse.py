@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import structlog
 from asyncua import Client, Node, ua
+from asyncua.common.subscription import SubHandler
 from prometheus_client import Counter, Gauge, Histogram
 from tenacity import (
     AsyncRetrying,
@@ -37,11 +38,10 @@ RECONNECT_COUNT   = Counter("opcua_reconnect_total", "Number of reconnection att
 WRITE_LATENCY     = Histogram("opcua_write_latency_seconds", "Time from OPC UA timestamp to DB write")
 
 
-class OPCUASubHandler:
+class OPCUASubHandler(SubHandler):
     """
     Subscription data change handler.
     Applies dead-band filtering and pushes values to the ingest queue.
-    asyncua uses duck-typing — any object with datachange_notification works.
     """
 
     def __init__(
