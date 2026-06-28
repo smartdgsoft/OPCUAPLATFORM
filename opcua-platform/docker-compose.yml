@@ -119,7 +119,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret_256bit}
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRE_MINUTES=1440
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:80}
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:80","http://34.131.90.115","http://34.131.90.115:3000"]
       - OPC_SERVER_URL=${OPC_SERVER_URL:-opc.tcp://localhost:4840}
       - OPC_SECURITY_MODE=${OPC_SECURITY_MODE:-None}
       - OPC_SECURITY_POLICY=${OPC_SECURITY_POLICY:-None}
