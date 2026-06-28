@@ -107,8 +107,8 @@ GROUP BY 1, 2
 WITH NO DATA;
 
 SELECT add_continuous_aggregate_policy('tag_values_1min',
-    start_offset => INTERVAL '10 minutes',
-    end_offset   => INTERVAL '1 minute',
+    start_offset => INTERVAL '30 minutes',
+    end_offset   => INTERVAL '5 minute',
     schedule_interval => INTERVAL '1 minute'
 );
 
