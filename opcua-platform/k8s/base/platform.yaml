@@ -1,0 +1,464 @@
+---
+# ================================================================
+# OPC UA Platform — Kubernetes Base Manifests
+# Apply with: kubectl apply -k k8s/overlays/production
+# ================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opcua-platform
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+
+---
+# ── ConfigMap ──────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: opcua-config
+  namespace: opcua-platform
+data:
+  KAFKA_TOPIC:              "opcua.tag.values"
+  KAFKA_GROUP_ID:           "opcua-db-writers"
+  KAFKA_ENABLED:            "true"
+  PUBLISH_INTERVAL_MS:      "500"
+  BUFFER_FLUSH_INTERVAL_S:  "2"
+  BATCH_INSERT_SIZE:        "2000"
+  LOG_LEVEL:                "INFO"
+  METRICS_PORT:             "9090"
+
+---
+# ── Secrets (override values in production overlay) ────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: opcua-secrets
+  namespace: opcua-platform
+type: Opaque
+stringData:
+  POSTGRES_USER:     "opcua_admin"
+  POSTGRES_PASSWORD: "CHANGE_IN_PRODUCTION"
+  REDIS_PASSWORD:    "CHANGE_IN_PRODUCTION"
+  JWT_SECRET:        "CHANGE_IN_PRODUCTION_64_CHARS"
+  OPC_USERNAME:      ""
+  OPC_PASSWORD:      ""
+
+---
+# ── TimescaleDB StatefulSet ────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: timescaledb
+  namespace: opcua-platform
+spec:
+  serviceName: timescaledb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: timescaledb
+  template:
+    metadata:
+      labels:
+        app: timescaledb
+    spec:
+      containers:
+        - name: timescaledb
+          image: timescale/timescaledb-ha:pg16-latest
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: opcua
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: opcua-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opcua-secrets
+                  key: POSTGRES_PASSWORD
+          args:
+            - postgres
+            - -c
+            - shared_buffers=4GB
+            - -c
+            - effective_cache_size=12GB
+            - -c
+            - max_connections=200
+            - -c
+            - timescaledb.max_background_workers=8
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              memory: "8Gi"
+              cpu:    "4"
+            limits:
+              memory: "16Gi"
+              cpu:    "8"
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "opcua_admin", "-d", "opcua"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      volumes:
+        - name: init-sql
+          configMap:
+            name: postgres-init-sql
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: fast-ssd
+        resources:
+          requests:
+            storage: 500Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: timescaledb
+  namespace: opcua-platform
+spec:
+  selector:
+    app: timescaledb
+  ports:
+    - port: 5432
+
+---
+# ── Redis StatefulSet ──────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: opcua-platform
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - "--requirepass"
+            - "$(REDIS_PASSWORD)"
+            - "--maxmemory"
+            - "4gb"
+            - "--maxmemory-policy"
+            - "allkeys-lru"
+            - "--appendonly"
+            - "yes"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: opcua-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu:    "1"
+            limits:
+              memory: "5Gi"
+              cpu:    "2"
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: opcua-platform
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+
+---
+# ── OPC UA Client Deployment ───────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opcua-client
+  namespace: opcua-platform
+spec:
+  replicas: 1           # One per OPC UA server endpoint
+  selector:
+    matchLabels:
+      app: opcua-client
+  template:
+    metadata:
+      labels:
+        app: opcua-client
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9090"
+    spec:
+      containers:
+        - name: opcua-client
+          image: opcua-platform/opcua-client:latest
+          envFrom:
+            - configMapRef:
+                name: opcua-config
+            - secretRef:
+                name: opcua-secrets
+          env:
+            - name: POSTGRES_DSN
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@timescaledb:5432/opcua"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@redis:6379/0"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-0.kafka:9092,kafka-1.kafka:9092,kafka-2.kafka:9092"
+          ports:
+            - containerPort: 9090
+              name: metrics
+          volumeMounts:
+            - name: certs
+              mountPath: /app/certs
+              readOnly: true
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu:    "500m"
+            limits:
+              memory: "1Gi"
+              cpu:    "2"
+      volumes:
+        - name: certs
+          secret:
+            secretName: opcua-client-certs
+            optional: true
+
+---
+# ── Kafka Consumer Deployment (horizontally scalable) ──────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-consumer
+  namespace: opcua-platform
+spec:
+  replicas: 4           # Scale up to number of Kafka partitions (12)
+  selector:
+    matchLabels:
+      app: kafka-consumer
+  template:
+    metadata:
+      labels:
+        app: kafka-consumer
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "9091"
+    spec:
+      containers:
+        - name: kafka-consumer
+          image: opcua-platform/opcua-consumer:latest
+          envFrom:
+            - configMapRef:
+                name: opcua-config
+            - secretRef:
+                name: opcua-secrets
+          env:
+            - name: POSTGRES_DSN
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@timescaledb:5432/opcua"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@redis:6379/0"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-0.kafka:9092,kafka-1.kafka:9092,kafka-2.kafka:9092"
+            - name: METRICS_PORT
+              value: "9091"
+            - name: KAFKA_CONSUMER_INSTANCE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          ports:
+            - containerPort: 9091
+              name: metrics
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "500m"
+            limits:
+              memory: "1Gi"
+              cpu:    "2"
+
+---
+# ── API Deployment ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: opcua-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8000"
+        prometheus.io/path:   "/api/metrics"
+    spec:
+      containers:
+        - name: api
+          image: opcua-platform/api:latest
+          envFrom:
+            - configMapRef:
+                name: opcua-config
+            - secretRef:
+                name: opcua-secrets
+          env:
+            - name: POSTGRES_DSN
+              value: "postgresql+asyncpg://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@timescaledb:5432/opcua"
+            - name: REDIS_URL
+              value: "redis://:$(REDIS_PASSWORD)@redis:6379/0"
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu:    "500m"
+            limits:
+              memory: "2Gi"
+              cpu:    "4"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: opcua-platform
+spec:
+  selector:
+    app: api
+  ports:
+    - port: 8000
+
+---
+# ── Horizontal Pod Autoscaler for API and consumers ───────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-hpa
+  namespace: opcua-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: consumer-hpa
+  namespace: opcua-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kafka-consumer
+  minReplicas: 2
+  maxReplicas: 12           # Max = Kafka partition count
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# ── Ingress ────────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: opcua-ingress
+  namespace: opcua-platform
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-body-size:    "10m"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: opcua.yourdomain.com
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8000
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8000
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80

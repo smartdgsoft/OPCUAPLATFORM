@@ -1,0 +1,685 @@
+version: "3.9"
+
+# ================================================================
+# OPC UA Platform — Production Scaled Docker Compose
+# Supports: 100k+ tags, 1M+ rows/sec ingestion
+# Run with: docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d
+# ================================================================
+
+networks:
+  opcua-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  timescale-primary-data:
+  timescale-replica-data:
+  redis-master-data:
+  redis-replica-data:
+  kafka-data-1:
+  kafka-data-2:
+  kafka-data-3:
+  zookeeper-data:
+  zookeeper-log:
+  grafana-data:
+  prometheus-data:
+  loki-data:
+
+services:
+
+  # ──────────────────────────────────────────────────────────────────
+  # ZooKeeper (Kafka coordination)
+  # ──────────────────────────────────────────────────────────────────
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: opcua-zookeeper
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_SYNC_LIMIT: 5
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
+    networks:
+      - opcua-net
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ──────────────────────────────────────────────────────────────────
+  # Kafka Broker 1
+  # ──────────────────────────────────────────────────────────────────
+  kafka-1:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: opcua-kafka-1
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168        # 7 days
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824   # 1 GB
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_COMPRESSION_TYPE: lz4
+      KAFKA_LINGER_MS: 5
+      KAFKA_BATCH_SIZE: 131072              # 128 KB
+      KAFKA_NUM_IO_THREADS: 8
+      KAFKA_NUM_NETWORK_THREADS: 4
+      KAFKA_SOCKET_SEND_BUFFER_BYTES: 102400
+      KAFKA_SOCKET_RECEIVE_BUFFER_BYTES: 102400
+    volumes:
+      - kafka-data-1:/var/lib/kafka/data
+    networks:
+      - opcua-net
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: opcua-kafka-2
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_COMPRESSION_TYPE: lz4
+      KAFKA_LINGER_MS: 5
+      KAFKA_BATCH_SIZE: 131072
+    volumes:
+      - kafka-data-2:/var/lib/kafka/data
+    networks:
+      - opcua-net
+
+  kafka-3:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: opcua-kafka-3
+    restart: unless-stopped
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 3
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_NUM_PARTITIONS: 12
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_MIN_INSYNC_REPLICAS: 2
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_COMPRESSION_TYPE: lz4
+      KAFKA_LINGER_MS: 5
+      KAFKA_BATCH_SIZE: 131072
+    volumes:
+      - kafka-data-3:/var/lib/kafka/data
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Kafka UI (management console)
+  # ──────────────────────────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: opcua-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      - kafka-1
+    environment:
+      KAFKA_CLUSTERS_0_NAME: opcua-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    ports:
+      - "9080:8080"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # TimescaleDB Primary
+  # ──────────────────────────────────────────────────────────────────
+  timescaledb-primary:
+    image: timescale/timescaledb-ha:pg16-latest
+    container_name: opcua-timescaledb-primary
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opcua}
+      POSTGRES_USER: ${POSTGRES_USER:-opcua_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_pass}
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:-repl_pass_change}
+      # Performance tuning for high-ingestion
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command: >
+      postgres
+        -c max_connections=200
+        -c shared_buffers=4GB
+        -c effective_cache_size=12GB
+        -c maintenance_work_mem=1GB
+        -c checkpoint_completion_target=0.9
+        -c wal_buffers=64MB
+        -c default_statistics_target=100
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c work_mem=20MB
+        -c min_wal_size=2GB
+        -c max_wal_size=8GB
+        -c max_worker_processes=8
+        -c max_parallel_workers_per_gather=4
+        -c max_parallel_workers=8
+        -c wal_level=replica
+        -c max_wal_senders=5
+        -c max_replication_slots=5
+        -c hot_standby=on
+        -c synchronous_commit=off
+        -c timescaledb.max_background_workers=8
+    volumes:
+      - timescale-primary-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./infra/postgres/replica/setup-replica.sh:/docker-entrypoint-initdb.d/02-setup-replica.sh
+    ports:
+      - "5432:5432"
+    networks:
+      - opcua-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opcua_admin} -d ${POSTGRES_DB:-opcua}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ──────────────────────────────────────────────────────────────────
+  # TimescaleDB Read Replica (for analytics queries)
+  # ──────────────────────────────────────────────────────────────────
+  timescaledb-replica:
+    image: timescale/timescaledb-ha:pg16-latest
+    container_name: opcua-timescaledb-replica
+    restart: unless-stopped
+    depends_on:
+      timescaledb-primary:
+        condition: service_healthy
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_pass}
+    command: >
+      bash -c "
+        until pg_basebackup -h timescaledb-primary -D /var/lib/postgresql/data
+          -U replicator -P -Xs -R 2>/dev/null; do
+          echo 'Waiting for primary...' && sleep 5;
+        done
+        echo 'standby_mode = on' >> /var/lib/postgresql/data/recovery.conf
+        postgres -c hot_standby=on -c max_connections=100
+          -c shared_buffers=2GB -c effective_cache_size=6GB
+      "
+    volumes:
+      - timescale-replica-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # PgBouncer — connection pooling for TimescaleDB
+  # ──────────────────────────────────────────────────────────────────
+  pgbouncer:
+    image: edoburu/pgbouncer:latest
+    container_name: opcua-pgbouncer
+    restart: unless-stopped
+    depends_on:
+      timescaledb-primary:
+        condition: service_healthy
+    environment:
+      DB_HOST: timescaledb-primary
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-opcua_admin}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-changeme_strong_pass}
+      DB_NAME: ${POSTGRES_DB:-opcua}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 1000
+      DEFAULT_POOL_SIZE: 50
+      MIN_POOL_SIZE: 10
+      RESERVE_POOL_SIZE: 10
+      SERVER_IDLE_TIMEOUT: 600
+      CLIENT_IDLE_TIMEOUT: 0
+    ports:
+      - "6432:5432"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Redis Master
+  # ──────────────────────────────────────────────────────────────────
+  redis-master:
+    image: redis:7-alpine
+    container_name: opcua-redis-master
+    restart: unless-stopped
+    command: >
+      redis-server
+        --requirepass ${REDIS_PASSWORD:-redis_pass}
+        --appendonly yes
+        --appendfsync everysec
+        --maxmemory 2gb
+        --maxmemory-policy allkeys-lru
+        --save 900 1
+        --save 300 10
+        --tcp-backlog 511
+        --hz 20
+    volumes:
+      - redis-master-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - opcua-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redis_pass}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ──────────────────────────────────────────────────────────────────
+  # Redis Replica (read scaling for live tag cache)
+  # ──────────────────────────────────────────────────────────────────
+  redis-replica:
+    image: redis:7-alpine
+    container_name: opcua-redis-replica
+    restart: unless-stopped
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    command: >
+      redis-server
+        --replicaof redis-master 6379
+        --requirepass ${REDIS_PASSWORD:-redis_pass}
+        --masterauth ${REDIS_PASSWORD:-redis_pass}
+        --appendonly yes
+        --maxmemory 2gb
+        --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-replica-data:/data
+    ports:
+      - "6380:6379"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # OPC UA Client (can run multiple for different OPC servers)
+  # ──────────────────────────────────────────────────────────────────
+  opcua-client:
+    build:
+      context: ./opcua-client
+      dockerfile: Dockerfile
+    container_name: opcua-client-1
+    restart: unless-stopped
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@pgbouncer:5432/${POSTGRES_DB:-opcua}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis-master:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
+      - KAFKA_TOPIC=opcua.tag.values
+      - KAFKA_ENABLED=true
+      - OPC_SERVER_URL=${OPC_SERVER_URL:-opc.tcp://localhost:4840}
+      - OPC_SECURITY_MODE=${OPC_SECURITY_MODE:-None}
+      - OPC_SECURITY_POLICY=${OPC_SECURITY_POLICY:-None}
+      - OPC_USERNAME=${OPC_USERNAME:-}
+      - OPC_PASSWORD=${OPC_PASSWORD:-}
+      - PUBLISH_INTERVAL_MS=${PUBLISH_INTERVAL_MS:-500}
+      - BUFFER_FLUSH_INTERVAL_S=${BUFFER_FLUSH_INTERVAL_S:-2}
+      - BATCH_INSERT_SIZE=1000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CLIENT_INSTANCE_ID=client-1
+    volumes:
+      - ./opcua-client/config:/app/config
+      - ./opcua-client/certs:/app/certs
+    networks:
+      - opcua-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+
+  # ──────────────────────────────────────────────────────────────────
+  # Kafka Consumer / TimescaleDB Writer (scalable workers)
+  # ──────────────────────────────────────────────────────────────────
+  kafka-consumer-1:
+    build:
+      context: ./opcua-client
+      dockerfile: Dockerfile.consumer
+    container_name: opcua-kafka-consumer-1
+    restart: unless-stopped
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      timescaledb-primary:
+        condition: service_healthy
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@pgbouncer:5432/${POSTGRES_DB:-opcua}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis-master:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
+      - KAFKA_TOPIC=opcua.tag.values
+      - KAFKA_GROUP_ID=opcua-db-writers
+      - KAFKA_CONSUMER_INSTANCE=consumer-1
+      - BATCH_INSERT_SIZE=2000
+      - BATCH_TIMEOUT_MS=500
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks:
+      - opcua-net
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+
+  kafka-consumer-2:
+    build:
+      context: ./opcua-client
+      dockerfile: Dockerfile.consumer
+    container_name: opcua-kafka-consumer-2
+    restart: unless-stopped
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      timescaledb-primary:
+        condition: service_healthy
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@pgbouncer:5432/${POSTGRES_DB:-opcua}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis-master:6379/0
+      - KAFKA_BOOTSTRAP_SERVERS=kafka-1:9092,kafka-2:9092,kafka-3:9092
+      - KAFKA_TOPIC=opcua.tag.values
+      - KAFKA_GROUP_ID=opcua-db-writers
+      - KAFKA_CONSUMER_INSTANCE=consumer-2
+      - BATCH_INSERT_SIZE=2000
+      - BATCH_TIMEOUT_MS=500
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # FastAPI — multiple workers behind HAProxy
+  # ──────────────────────────────────────────────────────────────────
+  api-1:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: opcua-api-1
+    restart: unless-stopped
+    depends_on:
+      timescaledb-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@pgbouncer:5432/${POSTGRES_DB:-opcua}
+      - POSTGRES_REPLICA_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@timescaledb-replica:5432/${POSTGRES_DB:-opcua}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis-master:6379/0
+      - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret_256bit}
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRE_MINUTES=1440
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:80}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=4
+    networks:
+      - opcua-net
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 2G
+
+  api-2:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: opcua-api-2
+    restart: unless-stopped
+    depends_on:
+      timescaledb-primary:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+    environment:
+      - POSTGRES_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@pgbouncer:5432/${POSTGRES_DB:-opcua}
+      - POSTGRES_REPLICA_DSN=postgresql+asyncpg://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@timescaledb-replica:5432/${POSTGRES_DB:-opcua}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis-master:6379/0
+      - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret_256bit}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:80}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=4
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # HAProxy — load balancer for API instances
+  # ──────────────────────────────────────────────────────────────────
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: opcua-haproxy
+    restart: unless-stopped
+    depends_on:
+      - api-1
+      - api-2
+    volumes:
+      - ./infra/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "8000:8000"
+      - "8404:8404"   # HAProxy stats
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Frontend (scaled with nginx)
+  # ──────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - VITE_API_URL=${VITE_API_URL:-http://localhost:8000}
+        - VITE_WS_URL=${VITE_WS_URL:-ws://localhost:8000}
+    container_name: opcua-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Nginx — unified reverse proxy
+  # ──────────────────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: opcua-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.scale.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - haproxy
+      - frontend
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Prometheus — metrics collection
+  # ──────────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: opcua-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Alertmanager
+  # ──────────────────────────────────────────────────────────────────
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: opcua-alertmanager
+    restart: unless-stopped
+    volumes:
+      - ./infra/prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Loki — log aggregation
+  # ──────────────────────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:latest
+    container_name: opcua-loki
+    restart: unless-stopped
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Promtail — log shipper (Docker logs → Loki)
+  # ──────────────────────────────────────────────────────────────────
+  promtail:
+    image: grafana/promtail:latest
+    container_name: opcua-promtail
+    restart: unless-stopped
+    volumes:
+      - ./infra/loki/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Grafana — unified observability dashboard
+  # ──────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: opcua-grafana
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+      - loki
+      - timescaledb-primary
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin_pass}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-worldmap-panel,grafana-piechart-panel
+      - GF_SERVER_ROOT_URL=http://localhost:3001
+      - GF_ALERTING_ENABLED=true
+      - GF_UNIFIED_ALERTING_ENABLED=true
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3001:3000"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Node Exporter — host metrics
+  # ──────────────────────────────────────────────────────────────────
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: opcua-node-exporter
+    restart: unless-stopped
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    ports:
+      - "9100:9100"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Postgres Exporter — TimescaleDB metrics
+  # ──────────────────────────────────────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: opcua-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@timescaledb-primary:5432/${POSTGRES_DB:-opcua}?sslmode=disable"
+    ports:
+      - "9187:9187"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Redis Exporter
+  # ──────────────────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: opcua-redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis-master:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_pass}
+    ports:
+      - "9121:9121"
+    networks:
+      - opcua-net
+
+  # ──────────────────────────────────────────────────────────────────
+  # Kafka Exporter
+  # ──────────────────────────────────────────────────────────────────
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: opcua-kafka-exporter
+    restart: unless-stopped
+    command:
+      - "--kafka.server=kafka-1:9092"
+      - "--kafka.server=kafka-2:9092"
+      - "--kafka.server=kafka-3:9092"
+    ports:
+      - "9308:9308"
+    networks:
+      - opcua-net

@@ -1,0 +1,60 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+  external_labels:
+    platform: opcua-industrial
+    env: production
+
+rule_files:
+  - "alerts.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: opcua-client
+    static_configs:
+      - targets: ["opcua-client:9090"]
+    scrape_interval: 5s
+    metrics_path: /metrics
+
+  - job_name: kafka-consumer-1
+    static_configs:
+      - targets: ["opcua-kafka-consumer-1:9091"]
+
+  - job_name: kafka-consumer-2
+    static_configs:
+      - targets: ["opcua-kafka-consumer-2:9091"]
+
+  - job_name: fastapi
+    static_configs:
+      - targets: ["opcua-api-1:8000", "opcua-api-2:8000"]
+    metrics_path: /api/metrics
+
+  - job_name: timescaledb
+    static_configs:
+      - targets: ["opcua-postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["opcua-redis-exporter:9121"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["opcua-kafka-exporter:9308"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["opcua-node-exporter:9100"]
+
+  - job_name: haproxy
+    static_configs:
+      - targets: ["opcua-haproxy:8404"]
+    metrics_path: /stats;csv
