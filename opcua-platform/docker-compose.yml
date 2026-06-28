@@ -98,7 +98,22 @@ services:
       - ./opcua-client/certs:/app/certs
     networks:
       - opcua-net
-
+  opcua-simulator:
+        image: mcr.microsoft.com/iotedge/opc-plc:latest
+        container_name: opcua-simulator
+        restart: unless-stopped
+        command:
+          - "--pn=50000"
+          - "--autoaccept"
+          - "--unsecuretransport"
+          - "--sph"
+          - "--sn=25"
+          - "--sr=10"
+          - "--fn=5"
+        ports:
+          - "50000:50000"
+        networks:
+          - opcua-net
   # ─────────────────────────────────────────────
   # FastAPI Backend
   # ─────────────────────────────────────────────
