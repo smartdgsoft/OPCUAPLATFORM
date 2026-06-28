@@ -34,7 +34,7 @@ VALUES_RECEIVED   = Counter("opcua_values_received_total", "Tag values received"
 VALUES_FILTERED   = Counter("opcua_values_filtered_total", "Values dropped by deadband")
 CONNECTION_STATUS = Gauge("opcua_connection_status", "1=connected 0=disconnected")
 RECONNECT_COUNT   = Counter("opcua_reconnect_total", "Number of reconnection attempts")
-WRITE_LATENCY     = Histogram("opcua_client_ingest_latency_seconds", "Time from OPC UA timestamp to DB write")
+WRITE_LATENCY     = Histogram("opcua_write_latency_seconds", "Time from OPC UA timestamp to DB write")
 
 
 class OPCUASubHandler:
