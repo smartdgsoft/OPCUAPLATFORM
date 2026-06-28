@@ -108,8 +108,8 @@ class OPCUAServerRegistry:
 
     async def _load_server_configs(self) -> List[ServerConfig]:
         if not MULTI_SERVER_ENABLED:
-            # Single-server mode: read connection from environment
-            cfg = ServerConfig(
+            # Single-server mode: read from environment
+            return [ServerConfig(
                 id="default",
                 name=os.getenv("OPC_SERVER_NAME", "Default Server"),
                 endpoint_url=os.getenv("OPC_SERVER_URL", "opc.tcp://localhost:4840"),
@@ -120,23 +120,7 @@ class OPCUAServerRegistry:
                 certificate_path=os.getenv("OPC_CERTIFICATE_PATH") or None,
                 private_key_path=os.getenv("OPC_PRIVATE_KEY_PATH") or None,
                 publish_interval_ms=int(os.getenv("PUBLISH_INTERVAL_MS", "1000")),
-            )
-            # Load active tags from the database so we can subscribe to them.
-            # In single-server mode tags may have server_id = the 'default'
-            # server row OR NULL, so accept both.
-            try:
-                tag_rows = await self._pool.fetch("""
-                    SELECT id::text AS tag_id, node_id, display_name, deadband_value,
-                           deadband_pct, sample_interval_ms
-                    FROM tags
-                    WHERE is_active = TRUE
-                """)
-                cfg.tags = [dict(t) for t in tag_rows]
-                logger.info("tags_loaded_single_server", count=len(cfg.tags))
-            except Exception as exc:
-                logger.error("tag_load_failed", error=str(exc))
-                cfg.tags = []
-            return [cfg]
+            )]
 
         # Multi-server mode: load from database
         rows = await self._pool.fetch("""
@@ -233,7 +217,6 @@ class OPCUAServerRegistry:
                 sub = await client.create_subscription(cfg.publish_interval_ms, handler)
                 state.subscription = sub
 
-                subscribed = 0
                 for tag in cfg.tags:
                     node = client.get_node(tag["node_id"])
                     try:
@@ -245,13 +228,8 @@ class OPCUAServerRegistry:
                         handle = await sub.subscribe_data_change(node, monitoring_parameters=params)
                         tag_map[handle] = tag
                         deadband_map[handle] = tag.get("deadband_value", 0.0)
-                        subscribed += 1
                     except Exception as exc:
                         logger.error("subscribe_failed", node_id=tag["node_id"], error=str(exc))
-                logger.info("subscriptions_active", server_id=server_id,
-                            subscribed=subscribed, total=len(cfg.tags))
-            else:
-                logger.warning("no_tags_to_subscribe", server_id=server_id)
 
             # Keepalive
             while self._running and cfg.enabled:
