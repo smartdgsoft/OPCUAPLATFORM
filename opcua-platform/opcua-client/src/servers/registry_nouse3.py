@@ -227,8 +227,8 @@ class OPCUAServerRegistry:
 
             # Set up subscriptions
             if cfg.tags:
-                tag_map: Dict[str, Dict] = {}
-                deadband_map: Dict[str, float] = {}
+                tag_map: Dict[int, Dict] = {}
+                deadband_map: Dict[int, float] = {}
                 handler = OPCUASubHandler(self._queue, tag_map, deadband_map)
                 sub = await client.create_subscription(cfg.publish_interval_ms, handler)
                 state.subscription = sub
@@ -237,12 +237,11 @@ class OPCUAServerRegistry:
                 for tag in cfg.tags:
                     try:
                         node = client.get_node(tag["node_id"])
-                        # Key maps by the node id string (matches what the
-                        # handler resolves from the notification's node).
-                        node_key = node.nodeid.to_string()
-                        await sub.subscribe_data_change(node)
-                        tag_map[node_key] = tag
-                        deadband_map[node_key] = tag.get("deadband_value", 0.0) or 0.0
+                        # Use the high-level API: subscribe_data_change handles
+                        # MonitoringParameters internally across asyncua versions.
+                        handle = await sub.subscribe_data_change(node)
+                        tag_map[handle] = tag
+                        deadband_map[handle] = tag.get("deadband_value", 0.0) or 0.0
                         subscribed += 1
                         logger.info("tag_subscribed", node_id=tag["node_id"],
                                     display_name=tag.get("display_name"))

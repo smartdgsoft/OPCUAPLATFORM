@@ -42,30 +42,31 @@ class OPCUASubHandler:
     Subscription data change handler.
     Applies dead-band filtering and pushes values to the ingest queue.
     asyncua uses duck-typing — any object with datachange_notification works.
-
-    NOTE: We resolve tags by NODE ID, not by ClientHandle, because the handle
-    returned by subscribe_data_change does not reliably match the ClientHandle
-    that arrives in notifications across asyncua versions.
     """
 
     def __init__(
         self,
         queue: asyncio.Queue,
-        tag_map: Dict[str, Dict],         # node_id (str) -> tag metadata
-        deadband_map: Dict[str, float],   # node_id (str) -> deadband value
+        tag_map: Dict[int, Dict],         # handle -> tag metadata
+        deadband_map: Dict[int, float],   # handle -> deadband value
     ) -> None:
         self._queue = queue
         self._tag_map = tag_map
         self._deadband_map = deadband_map
-        self._last_values: Dict[str, float] = {}
+        self._last_values: Dict[int, float] = {}
 
     def datachange_notification(
         self, node: Node, val: Any, data: Any
     ) -> None:
         try:
-            # Resolve the tag by node id — reliable across asyncua versions.
-            node_id_str = node.nodeid.to_string()
-            tag_meta = self._tag_map.get(node_id_str)
+            # Resolve the client handle from the DataChangeNotif structure.
+            handle = None
+            mi = getattr(data, "monitored_item", None)
+            if mi is not None:
+                handle = getattr(mi, "ClientHandle", None)
+            if handle is None:
+                return
+            tag_meta = self._tag_map.get(handle)
             if tag_meta is None:
                 return
 
@@ -77,19 +78,18 @@ class OPCUASubHandler:
                 pass
 
             # ── Dead-band filter ─────────────────────────────────────────
-            deadband = self._deadband_map.get(node_id_str, 0.0)
+            deadband = self._deadband_map.get(handle, 0.0)
             if deadband and isinstance(raw_value, (int, float)) and not isinstance(raw_value, bool):
-                last = self._last_values.get(node_id_str)
+                last = self._last_values.get(handle)
                 if last is not None and abs(raw_value - last) < deadband:
                     VALUES_FILTERED.inc()
                     return
-                self._last_values[node_id_str] = float(raw_value)
+                self._last_values[handle] = float(raw_value)
 
             # ── Quality + source timestamp (best-effort) ─────────────────
             quality = 192  # Good
             source_ts = None
             try:
-                mi = getattr(data, "monitored_item", None)
                 if mi is not None and getattr(mi, "Value", None) is not None:
                     mv = mi.Value
                     sc = getattr(mv, "StatusCode", None)
