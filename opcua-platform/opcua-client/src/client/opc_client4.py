@@ -86,11 +86,7 @@ class OPCUASubHandler:
                 self._last_values[node_id_str] = float(raw_value)
 
             # ── Quality + source timestamp (best-effort) ─────────────────
-            # OPC UA StatusCode severity is in the top 2 bits:
-            #   0b00 = Good, 0b01 = Uncertain, 0b10/0b11 = Bad
-            # We store the classic DataValue quality byte: 192=Good,
-            # 64=Uncertain, 0=Bad — which is what the UI expects.
-            quality = 192  # default Good
+            quality = 192  # Good
             source_ts = None
             try:
                 mi = getattr(data, "monitored_item", None)
@@ -98,14 +94,7 @@ class OPCUASubHandler:
                     mv = mi.Value
                     sc = getattr(mv, "StatusCode", None)
                     if sc is not None and hasattr(sc, "value"):
-                        code = sc.value & 0xFFFFFFFF
-                        severity = (code >> 30) & 0x3   # top 2 bits
-                        if severity == 0:
-                            quality = 192   # Good
-                        elif severity == 1:
-                            quality = 64    # Uncertain
-                        else:
-                            quality = 0     # Bad
+                        quality = sc.value & 0xFFFF
                     st = getattr(mv, "SourceTimestamp", None)
                     if st:
                         source_ts = st
