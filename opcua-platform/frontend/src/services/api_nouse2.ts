@@ -61,36 +61,6 @@ export const fetchLiveValues = (tagIds: string[]): Promise<TagLiveValue[]> =>
 export const fetchAssets = (): Promise<Asset[]> =>
   api.get<Asset[]>("/assets/").then((r) => r.data);
 
-export interface AssetLevel { id: number; name: string; }
-export const fetchAssetLevels = (): Promise<AssetLevel[]> =>
-  api.get<AssetLevel[]>("/assets/levels").then((r) => r.data);
-
-export const fetchAssetTags = (assetId: string): Promise<Tag[]> =>
-  api.get<Tag[]>(`/assets/${assetId}/tags`).then((r) => r.data);
-
-export interface AssetInput {
-  parent_id?: string | null;
-  level_id: number;
-  name: string;
-  description?: string | null;
-  location?: string | null;
-}
-
-export const createAsset = (body: AssetInput): Promise<Asset> =>
-  api.post<Asset>("/assets/", body).then((r) => r.data);
-
-export const updateAsset = (id: string, body: Partial<AssetInput>): Promise<Asset> =>
-  api.put<Asset>(`/assets/${id}`, body).then((r) => r.data);
-
-export const deleteAsset = (id: string): Promise<void> =>
-  api.delete(`/assets/${id}`).then(() => undefined);
-
-export const mapTagToAsset = (assetId: string, tagId: string): Promise<void> =>
-  api.post(`/assets/${assetId}/tags`, { tag_id: tagId }).then(() => undefined);
-
-export const unmapTagFromAsset = (assetId: string, tagId: string): Promise<void> =>
-  api.delete(`/assets/${assetId}/tags/${tagId}`).then(() => undefined);
-
 // ── History ─────────────────────────────────────────────────────────
 export const fetchHistory = (
   tagId: string,
