@@ -45,14 +45,14 @@ export const fetchHistory = (
   tagId: string,
   start: Date,
   end: Date,
-  resolution?: string
+  resolution = "auto"
 ): Promise<TagHistory> =>
   api
     .get<TagHistory>(`/history/${tagId}`, {
       params: {
         start: start.toISOString(),
         end: end.toISOString(),
-        ...(resolution ? { resolution } : {}),
+        resolution,
       },
     })
     .then((r) => r.data);

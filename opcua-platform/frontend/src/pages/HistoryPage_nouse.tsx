@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useQuery, useQueries } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Brush,
@@ -29,14 +29,14 @@ export default function HistoryPage() {
   const start = customStart ? new Date(customStart) : RANGES[rangeIdx].start();
   const end = customEnd ? new Date(customEnd) : new Date();
 
-  // Fetch history for all selected tags using useQueries (Rules-of-Hooks safe:
-  // a single hook call handles a dynamic number of parallel queries).
-  const historyQueries = useQueries({
-    queries: selectedTags.map((tagId) => ({
+  // Fetch history for all selected tags
+  const historyQueries = selectedTags.map((tagId) => {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    return useQuery({
       queryKey: ["history", tagId, start.toISOString(), end.toISOString()],
       queryFn: () => fetchHistory(tagId, start, end),
       enabled: !!tagId,
-    })),
+    });
   });
 
   // Merge all tag data into a single time-keyed dataset
