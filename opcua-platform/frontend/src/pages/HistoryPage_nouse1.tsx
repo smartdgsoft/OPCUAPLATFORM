@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -26,26 +26,8 @@ export default function HistoryPage() {
 
   const { data: tags = [] } = useQuery({ queryKey: ["tags"], queryFn: () => fetchTags() });
 
-  // Memoize start/end so they are STABLE between renders. Computing
-  // `new Date()` inline on every render produced a new value each time,
-  // which changed the query key, which refetched, which re-rendered…
-  // an infinite loop that exhausted the browser (ERR_INSUFFICIENT_RESOURCES).
-  // We also round to the start of the current minute so sub-second jitter
-  // does not create a new key on every tick.
-  const { start, end } = useMemo(() => {
-    const now = new Date();
-    now.setSeconds(0, 0); // round to the minute for a stable key
-    const e = customEnd ? new Date(customEnd) : now;
-    let s: Date;
-    if (customStart) {
-      s = new Date(customStart);
-    } else {
-      s = RANGES[rangeIdx].start();
-      s.setSeconds(0, 0);
-    }
-    return { start: s, end: e };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeIdx, customStart, customEnd]);
+  const start = customStart ? new Date(customStart) : RANGES[rangeIdx].start();
+  const end = customEnd ? new Date(customEnd) : new Date();
 
   // Fetch history for all selected tags using useQueries (Rules-of-Hooks safe:
   // a single hook call handles a dynamic number of parallel queries).
@@ -54,9 +36,6 @@ export default function HistoryPage() {
       queryKey: ["history", tagId, start.toISOString(), end.toISOString()],
       queryFn: () => fetchHistory(tagId, start, end),
       enabled: !!tagId,
-      staleTime: 15_000,
-      refetchOnWindowFocus: false,
-      retry: 1,
     })),
   });
 

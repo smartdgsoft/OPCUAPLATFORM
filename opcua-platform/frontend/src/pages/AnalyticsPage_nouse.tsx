@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   RadialBarChart, RadialBar, PieChart, Pie, Cell,
@@ -17,39 +17,23 @@ export default function AnalyticsPage() {
   const [rangeIdx, setRangeIdx] = useState(1);
   const [selectedAsset, setSelectedAsset] = useState<string>("");
 
-  // Memoize start/end (stable between renders) to avoid an infinite
-  // refetch loop. Round to the minute so the key does not change every tick.
-  const { start, end } = useMemo(() => {
-    const now = new Date();
-    now.setSeconds(0, 0);
-    const s = RANGES[rangeIdx].start();
-    s.setSeconds(0, 0);
-    return { start: s, end: now };
-  }, [rangeIdx]);
+  const start = RANGES[rangeIdx].start();
+  const end = new Date();
 
   const { data: tags = [] } = useQuery({ queryKey: ["tags"], queryFn: () => fetchTags() });
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => fetchAssets() });
 
   const tagIds = tags.map((t) => t.id);
-  const startIso = start.toISOString();
-  const endIso = end.toISOString();
-
   const { data: summaries = [] } = useQuery({
-    queryKey: ["summary", tagIds, startIso, endIso],
+    queryKey: ["summary", tagIds, start, end],
     queryFn: () => fetchSummary(tagIds, start, end),
     enabled: tagIds.length > 0,
-    staleTime: 15_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
   });
 
   const { data: oee } = useQuery({
-    queryKey: ["oee", selectedAsset, startIso, endIso],
+    queryKey: ["oee", selectedAsset, start, end],
     queryFn: () => fetchOEE(selectedAsset, start, end),
     enabled: !!selectedAsset,
-    staleTime: 15_000,
-    refetchOnWindowFocus: false,
-    retry: 1,
   });
 
   const oeeData = oee
