@@ -5,12 +5,12 @@ import {
   Search, ChevronRight, ChevronDown, Eye, AlertTriangle,
   Shield, Clock, Database, Zap, TrendingUp, Play, Square,
   CheckCircle, XCircle, Info, Folder, Tag, BarChart2,
-  Plus, Trash2, X, Pencil,
+  Plus, Trash2, X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { api } from "../services/api";
 import {
-  fetchServers as fetchServerList, addServer, updateServer, removeServer,
+  fetchServers as fetchServerList, addServer, removeServer,
   type OpcServer, type OpcServerInput,
 } from "../services/api";
 import { useFeatures } from "../hooks/useFeatures";
@@ -1030,18 +1030,12 @@ function ServersTab({ onConnectToView }: { onConnectToView: () => void }) {
   const qc = useQueryClient();
   const { servers } = useServer();
   const [showAdd, setShowAdd] = useState(false);
-  const [editing, setEditing] = useState<OpcServer | null>(null);
   const [err, setErr] = useState("");
 
   const addMut = useMutation({
     mutationFn: (b: OpcServerInput) => addServer(b),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["servers"] }); setShowAdd(false); setErr(""); },
     onError: (e: any) => setErr(e?.response?.data?.detail ?? "Failed to add server"),
-  });
-  const editMut = useMutation({
-    mutationFn: ({ id, b }: { id: string; b: Partial<OpcServerInput> }) => updateServer(id, b),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["servers"] }); setEditing(null); setErr(""); },
-    onError: (e: any) => setErr(e?.response?.data?.detail ?? "Failed to update server"),
   });
   const removeMut = useMutation({
     mutationFn: (id: string) => removeServer(id),
@@ -1076,39 +1070,24 @@ function ServersTab({ onConnectToView }: { onConnectToView: () => void }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>
           {servers.map((s) => (
             <ServerStatusCard key={s.id} server={s}
-              onEdit={() => { setErr(""); setEditing(s); }}
-              onRemove={() => {
-                if (confirm(`Permanently delete server "${s.name}"? Tags mapped to it will be unmapped.`))
-                  removeMut.mutate(s.id);
-              }} />
+              onRemove={() => { if (confirm(`Disable & disconnect "${s.name}"?`)) removeMut.mutate(s.id); }} />
           ))}
         </div>
       )}
 
       {showAdd && (
-        <ServerModal mode="create" error={err} busy={addMut.isPending}
+        <AddServerModal error={err} busy={addMut.isPending}
           onCancel={() => { setShowAdd(false); setErr(""); }}
           onSubmit={(b) => addMut.mutate(b)} />
-      )}
-      {editing && (
-        <ServerModal mode="edit" initial={editing} error={err} busy={editMut.isPending}
-          onCancel={() => { setEditing(null); setErr(""); }}
-          onSubmit={(b) => editMut.mutate({ id: editing.id, b })} />
       )}
     </div>
   );
 }
 
-function ServerStatusCard({ server, onEdit, onRemove }: {
-  server: OpcServer; onEdit: () => void; onRemove: () => void;
-}) {
+function ServerStatusCard({ server, onRemove }: { server: OpcServer; onRemove: () => void }) {
   const connected = server.connected;
   const secure = server.security_mode && server.security_mode !== "None";
   const statusColor = connected ? "#22c55e" : server.last_error ? "#dc2626" : "#94a3b8";
-  const iconBtn: React.CSSProperties = {
-    display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28,
-    borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer",
-  };
   const badge = (color: string, text: string) => (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 500,
       padding: "3px 8px", borderRadius: 12, background: `${color}18`, color }}>{text}</span>
@@ -1125,14 +1104,12 @@ function ServerStatusCard({ server, onEdit, onRemove }: {
           <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{server.name}</div>
           <div style={{ fontSize: 12, color: "#94a3b8", wordBreak: "break-all" }}>{server.endpoint_url}</div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button title="Edit" style={{ ...iconBtn, color: "#64748b" }} onClick={onEdit}>
-            <Pencil size={14} />
-          </button>
-          <button title="Delete permanently" style={{ ...iconBtn, color: "#dc2626" }} onClick={onRemove}>
-            <Trash2 size={14} />
-          </button>
-        </div>
+        <button title="Disable & remove"
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28,
+            borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", color: "#dc2626" }}
+          onClick={onRemove}>
+          <Trash2 size={14} />
+        </button>
       </div>
       {server.description && <div style={{ fontSize: 12, color: "#64748b" }}>{server.description}</div>}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -1148,20 +1125,17 @@ function ServerStatusCard({ server, onEdit, onRemove }: {
   );
 }
 
-function ServerModal({ mode, initial, error, busy, onCancel, onSubmit }: {
-  mode: "create" | "edit";
-  initial?: OpcServer;
-  error: string; busy: boolean;
-  onCancel: () => void; onSubmit: (b: OpcServerInput) => void;
+function AddServerModal({ error, busy, onCancel, onSubmit }: {
+  error: string; busy: boolean; onCancel: () => void; onSubmit: (b: OpcServerInput) => void;
 }) {
-  const [name, setName] = useState(initial?.name ?? "");
-  const [url, setUrl] = useState(initial?.endpoint_url ?? "opc.tcp://");
-  const [secMode, setSecMode] = useState(initial?.security_mode ?? "None");
-  const [secPolicy, setSecPolicy] = useState(initial?.security_policy ?? "None");
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("opc.tcp://");
+  const [secMode, setSecMode] = useState("None");
+  const [secPolicy, setSecPolicy] = useState("None");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [publishMs, setPublishMs] = useState(initial?.publish_interval_ms ?? 1000);
-  const [description, setDescription] = useState(initial?.description ?? "");
+  const [publishMs, setPublishMs] = useState(1000);
+  const [description, setDescription] = useState("");
   const secured = secMode !== "None";
   const inp: React.CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 6,
     border: "1px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" };
@@ -1169,15 +1143,12 @@ function ServerModal({ mode, initial, error, busy, onCancel, onSubmit }: {
 
   const submit = () => {
     if (!name.trim() || !url.trim()) return;
-    const body: OpcServerInput = {
+    onSubmit({
       name: name.trim(), endpoint_url: url.trim(), security_mode: secMode,
       security_policy: secured ? secPolicy : "None",
+      username: username.trim() || null, password: password || null,
       publish_interval_ms: publishMs, description: description.trim() || null,
-    };
-    // Only send credentials if the user typed them (avoid wiping on edit).
-    if (username.trim()) body.username = username.trim();
-    if (password) body.password = password;
-    onSubmit(body);
+    });
   };
 
   return (
@@ -1187,9 +1158,7 @@ function ServerModal({ mode, initial, error, busy, onCancel, onSubmit }: {
         maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}
         onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>
-            {mode === "create" ? "Add OPC UA Server" : "Edit Server"}
-          </h2>
+          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>Add OPC UA Server</h2>
           <button style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }} onClick={onCancel}>
             <X size={18} />
           </button>
@@ -1220,11 +1189,11 @@ function ServerModal({ mode, initial, error, busy, onCancel, onSubmit }: {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
-            <label style={lbl}>Username {mode === "edit" ? "(leave blank to keep)" : "(optional)"}</label>
+            <label style={lbl}>Username (optional)</label>
             <input style={inp} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="anonymous if blank" />
           </div>
           <div>
-            <label style={lbl}>Password {mode === "edit" ? "(leave blank to keep)" : "(optional)"}</label>
+            <label style={lbl}>Password (optional)</label>
             <input style={inp} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
         </div>
@@ -1247,7 +1216,7 @@ function ServerModal({ mode, initial, error, busy, onCancel, onSubmit }: {
           <button style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#0ea5e9",
             color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
             disabled={busy || !name.trim() || !url.trim()} onClick={submit}>
-            {busy ? "Saving…" : mode === "create" ? "Add Server" : "Save Changes"}
+            {busy ? "Adding…" : "Add Server"}
           </button>
         </div>
       </div>

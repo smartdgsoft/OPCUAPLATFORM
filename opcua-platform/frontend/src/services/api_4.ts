@@ -174,9 +174,6 @@ export const fetchServers = (): Promise<OpcServer[]> =>
 export const addServer = (body: OpcServerInput): Promise<OpcServer> =>
   api.post<OpcServer>("/servers/", body).then((r) => r.data);
 
-export const updateServer = (id: string, body: Partial<OpcServerInput> & { enabled?: boolean }): Promise<OpcServer> =>
-  api.put<OpcServer>(`/servers/${id}`, body).then((r) => r.data);
-
 export const removeServer = (id: string): Promise<void> =>
   api.delete(`/servers/${id}`).then(() => undefined);
 

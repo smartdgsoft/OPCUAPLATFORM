@@ -30,20 +30,6 @@ class ServerCreate(BaseModel):
     description:         Optional[str] = None
 
 
-class ServerUpdate(BaseModel):
-    name:                Optional[str] = None
-    endpoint_url:        Optional[str] = None
-    security_mode:       Optional[str] = None
-    security_policy:     Optional[str] = None
-    username:            Optional[str] = None
-    password:            Optional[str] = None
-    certificate_path:    Optional[str] = None
-    private_key_path:    Optional[str] = None
-    publish_interval_ms: Optional[int] = None
-    description:         Optional[str] = None
-    enabled:             Optional[bool] = None
-
-
 @router.get("/")
 async def list_servers(
     redis: aioredis.Redis = Depends(get_redis),
@@ -125,99 +111,21 @@ async def add_server(
     return dict(row)
 
 
-@router.put("/{server_id}")
-async def update_server(
-    server_id: str,
-    req: ServerUpdate,
-    pool: asyncpg.Pool = Depends(get_pool),
-    redis: aioredis.Redis = Depends(get_redis),
-    _: UserOut = Depends(require_roles("ADMIN")),
-):
-    """Edit a server's connection details — ADMIN only.
-
-    Only fields provided in the body are changed. After updating, the client
-    is told to reconnect to the server so new settings take effect live.
-    """
-    if not MULTI_SERVER:
-        raise HTTPException(503, "Set FEATURE_MULTI_SERVER=true to manage multiple servers")
-
-    existing = await pool.fetchrow(
-        "SELECT * FROM opc_servers WHERE id=$1::uuid", server_id
-    )
-    if not existing:
-        raise HTTPException(404, "Server not found")
-
-    fields = req.model_dump(exclude_unset=True)
-    if not fields:
-        raise HTTPException(400, "No fields to update")
-
-    # Build a dynamic UPDATE only for the provided fields.
-    allowed = {
-        "name", "endpoint_url", "security_mode", "security_policy",
-        "username", "password", "certificate_path", "private_key_path",
-        "publish_interval_ms", "description", "enabled",
-    }
-    sets, values = [], []
-    for key, val in fields.items():
-        if key in allowed:
-            values.append(val)
-            sets.append(f"{key} = ${len(values)}")
-    if not sets:
-        raise HTTPException(400, "No valid fields to update")
-
-    values.append(server_id)
-    row = await pool.fetchrow(
-        f"""UPDATE opc_servers SET {', '.join(sets)}
-            WHERE id = ${len(values)}::uuid
-            RETURNING id::text, name, endpoint_url, security_mode, security_policy,
-                      publish_interval_ms, enabled, description""",
-        *values,
-    )
-
-    # Tell the client to drop and re-establish this connection with new settings.
-    await redis.publish("opcua:commands", json.dumps({
-        "cmd": "reload_server", "server_id": server_id
-    }))
-    return dict(row)
-
-
 @router.delete("/{server_id}")
 async def remove_server(
     server_id: str,
-    disable_only: bool = False,
     pool: asyncpg.Pool = Depends(get_pool),
     redis: aioredis.Redis = Depends(get_redis),
     _: UserOut = Depends(require_roles("ADMIN")),
 ):
-    """Remove a server — ADMIN only.
-
-    By default this permanently deletes the server row (after unmapping its
-    tags). Pass ?disable_only=true to only disable it instead of deleting.
-    """
-    if not MULTI_SERVER:
-        raise HTTPException(503, "Set FEATURE_MULTI_SERVER=true to manage multiple servers")
-
-    exists = await pool.fetchval("SELECT 1 FROM opc_servers WHERE id=$1::uuid", server_id)
-    if not exists:
-        raise HTTPException(404, "Server not found")
-
-    # Always tell the client to disconnect first.
+    """Disable a server connection — ADMIN only."""
+    await pool.execute(
+        "UPDATE opc_servers SET enabled=FALSE WHERE id=$1::uuid", server_id
+    )
     await redis.publish("opcua:commands", json.dumps({
         "cmd": "remove_server", "server_id": server_id
     }))
-
-    if disable_only:
-        await pool.execute(
-            "UPDATE opc_servers SET enabled=FALSE WHERE id=$1::uuid", server_id
-        )
-        return {"status": "disabled", "server_id": server_id}
-
-    # Permanent delete: unmap tags first, then remove the row.
-    await pool.execute(
-        "UPDATE tags SET server_id = NULL WHERE server_id = $1::uuid", server_id
-    )
-    await pool.execute("DELETE FROM opc_servers WHERE id=$1::uuid", server_id)
-    return {"status": "deleted", "server_id": server_id}
+    return {"status": "disabled", "server_id": server_id}
 
 
 @router.get("/{server_id}/browse")
