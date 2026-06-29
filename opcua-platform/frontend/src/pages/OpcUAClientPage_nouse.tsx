@@ -1,19 +1,13 @@
-import React, { useState, useEffect, useCallback, createContext, useContext } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Wifi, WifiOff, RefreshCw, Server, Activity, List,
   Search, ChevronRight, ChevronDown, Eye, AlertTriangle,
   Shield, Clock, Database, Zap, TrendingUp, Play, Square,
   CheckCircle, XCircle, Info, Folder, Tag, BarChart2,
-  Plus, Trash2, X,
 } from "lucide-react";
 import { format } from "date-fns";
 import { api } from "../services/api";
-import {
-  fetchServers as fetchServerList, addServer, removeServer,
-  type OpcServer, type OpcServerInput,
-} from "../services/api";
-import { useFeatures } from "../hooks/useFeatures";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface ConnectionStatus {
@@ -77,38 +71,21 @@ const fetchStatus = (): Promise<ConnectionStatus> =>
   api.get("/opcua/status").then((r) => r.data);
 const fetchMetrics = (): Promise<ClientMetrics> =>
   api.get("/opcua/metrics").then((r) => r.data);
-const fetchServerInfo = (url?: string, serverId?: string): Promise<ServerInfo> =>
-  api.get("/opcua/server-info", {
-    params: { ...(url ? { server_url: url } : {}), ...(serverId ? { server_id: serverId } : {}) },
-  }).then((r) => r.data);
-const fetchBrowse = (nodeId: string, serverId?: string, url?: string): Promise<OpcNode[]> =>
-  api.get("/opcua/browse", {
-    params: { node_id: nodeId, ...(serverId ? { server_id: serverId } : {}), ...(url ? { server_url: url } : {}) },
-  }).then((r) => r.data);
-const fetchSubscriptions = (serverId?: string): Promise<SubscriptionInfo[]> =>
-  api.get("/opcua/subscriptions", {
-    params: serverId ? { server_id: serverId } : {},
-  }).then((r) => r.data);
+const fetchServerInfo = (url?: string): Promise<ServerInfo> =>
+  api.get("/opcua/server-info", { params: url ? { server_url: url } : {} }).then((r) => r.data);
+const fetchBrowse = (nodeId: string, url?: string): Promise<OpcNode[]> =>
+  api.get("/opcua/browse", { params: { node_id: nodeId, ...(url ? { server_url: url } : {}) } }).then((r) => r.data);
+const fetchSubscriptions = (): Promise<SubscriptionInfo[]> =>
+  api.get("/opcua/subscriptions").then((r) => r.data);
 const fetchEndpoints = (url: string): Promise<EndpointInfo[]> =>
   api.get("/opcua/endpoints", { params: { server_url: url } }).then((r) => r.data);
-const readNodeValue = (nodeId: string, serverId?: string): Promise<any> =>
-  api.get("/opcua/node-value", {
-    params: { node_id: nodeId, ...(serverId ? { server_id: serverId } : {}) },
-  }).then((r) => r.data);
+const readNodeValue = (nodeId: string): Promise<any> =>
+  api.get("/opcua/node-value", { params: { node_id: nodeId } }).then((r) => r.data);
 const restartClient = (): Promise<any> =>
   api.post("/opcua/restart").then((r) => r.data);
 
-// ── Selected-server context (multi-server) ─────────────────────────────────
-interface ServerCtx {
-  serverId: string;            // "default" in single-server mode
-  servers: OpcServer[];
-  multi: boolean;
-}
-const SelectedServerContext = createContext<ServerCtx>({ serverId: "default", servers: [], multi: false });
-const useServer = () => useContext(SelectedServerContext);
-
 // ── Colours ────────────────────────────────────────────────────────────────
-const TABS = ["Servers", "Connection", "Server Info", "Address Space", "Subscriptions", "Metrics", "Security"] as const;
+const TABS = ["Connection", "Server Info", "Address Space", "Subscriptions", "Metrics", "Security"] as const;
 type Tab = typeof TABS[number];
 
 function qualityBadge(q?: number | null) {
@@ -127,93 +104,51 @@ function nodeClassIcon(nc: string) {
 
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function OpcUAClientPage() {
-  const features = useFeatures();
-  const multi = features.multi_server;
-  const [tab, setTab] = useState<Tab>(multi ? "Servers" : "Connection");
-  const [serverId, setServerId] = useState<string>("default");
-
-  // In multi-server mode, load the server list for the selector + Servers tab.
-  const { data: servers = [] } = useQuery({
-    queryKey: ["servers"],
-    queryFn: fetchServerList,
-    refetchInterval: 5000,
-    enabled: multi,
-  });
-
-  // Default the selected server to the first one once the list loads.
-  React.useEffect(() => {
-    if (multi && serverId === "default" && servers.length > 0) {
-      setServerId(servers[0].id);
-    }
-  }, [multi, servers, serverId]);
-
-  // Tabs to show: hide "Servers" entirely in single-server mode.
-  const visibleTabs = TABS.filter((t) => (t === "Servers" ? multi : true));
-  const showSelector = multi && tab !== "Servers" && tab !== "Security";
+  const [tab, setTab] = useState<Tab>("Connection");
+  const qc = useQueryClient();
 
   return (
-    <SelectedServerContext.Provider value={{ serverId, servers, multi }}>
-      <div>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div>
-            <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#0f172a", display: "flex", alignItems: "center", gap: 10 }}>
-              <Wifi size={22} color="#0ea5e9" /> OPC UA Client
-            </h1>
-            <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>
-              Manage connections, browse address space, monitor subscriptions
-            </p>
-          </div>
-          <ConnectionPill />
+    <div>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#0f172a", display: "flex", alignItems: "center", gap: 10 }}>
+            <Wifi size={22} color="#0ea5e9" /> OPC UA Client
+          </h1>
+          <p style={{ color: "#64748b", fontSize: 14, marginTop: 4 }}>
+            Manage connections, browse address space, monitor subscriptions
+          </p>
         </div>
-
-        {/* Tab bar + per-server selector */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, borderBottom: "1px solid #e2e8f0", marginBottom: 24 }}>
-          <div style={{ display: "flex", gap: 2, flex: 1 }}>
-            {visibleTabs.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{
-                  padding: "10px 18px", border: "none", background: "none",
-                  fontSize: 14, cursor: "pointer", fontWeight: tab === t ? 600 : 400,
-                  color: tab === t ? "#0ea5e9" : "#64748b",
-                  borderBottom: `2px solid ${tab === t ? "#0ea5e9" : "transparent"}`,
-                  marginBottom: -1,
-                }}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-          {showSelector && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 6 }}>
-              <Server size={15} color="#64748b" />
-              <select
-                value={serverId}
-                onChange={(e) => setServerId(e.target.value)}
-                style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #e2e8f0", fontSize: 13, color: "#374151" }}
-              >
-                {servers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.connected ? "🟢" : "⚪"} {s.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {/* Tab content */}
-        {tab === "Servers"        && <ServersTab onConnectToView={() => setTab("Connection")} />}
-        {tab === "Connection"     && <ConnectionTab />}
-        {tab === "Server Info"    && <ServerInfoTab />}
-        {tab === "Address Space"  && <AddressSpaceTab />}
-        {tab === "Subscriptions"  && <SubscriptionsTab />}
-        {tab === "Metrics"        && <MetricsTab />}
-        {tab === "Security"       && <SecurityTab />}
+        <ConnectionPill />
       </div>
-    </SelectedServerContext.Provider>
+
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: 2, borderBottom: "1px solid #e2e8f0", marginBottom: 24 }}>
+        {TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: "10px 18px", border: "none", background: "none",
+              fontSize: 14, cursor: "pointer", fontWeight: tab === t ? 600 : 400,
+              color: tab === t ? "#0ea5e9" : "#64748b",
+              borderBottom: `2px solid ${tab === t ? "#0ea5e9" : "transparent"}`,
+              marginBottom: -1,
+            }}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {tab === "Connection"     && <ConnectionTab />}
+      {tab === "Server Info"    && <ServerInfoTab />}
+      {tab === "Address Space"  && <AddressSpaceTab />}
+      {tab === "Subscriptions"  && <SubscriptionsTab />}
+      {tab === "Metrics"        && <MetricsTab />}
+      {tab === "Security"       && <SecurityTab />}
+    </div>
   );
 }
 
@@ -394,13 +329,12 @@ function EndpointDiscovery({ serverUrl }: { serverUrl?: string }) {
 
 // ── Tab: Server Info ───────────────────────────────────────────────────────
 function ServerInfoTab() {
-  const { serverId } = useServer();
   const [customUrl, setCustomUrl] = useState("");
   const [triggered, setTriggered] = useState(true);
 
   const { data: info, isLoading, error, refetch } = useQuery({
-    queryKey: ["server-info", serverId, customUrl],
-    queryFn: () => fetchServerInfo(customUrl || undefined, serverId),
+    queryKey: ["server-info", customUrl],
+    queryFn: () => fetchServerInfo(customUrl || undefined),
     enabled: triggered,
     retry: false,
   });
@@ -482,7 +416,6 @@ function InfoRow({ label, value, mono = false }: { label: string; value?: string
 
 // ── Tab: Address Space Browser ─────────────────────────────────────────────
 function AddressSpaceTab() {
-  const { serverId } = useServer();
   const [path, setPath] = useState<Array<{ node_id: string; label: string }>>([
     { node_id: "i=85", label: "Objects" },
   ]);
@@ -494,8 +427,8 @@ function AddressSpaceTab() {
   const currentNodeId = path[path.length - 1].node_id;
 
   const { data: nodes = [], isLoading } = useQuery({
-    queryKey: ["browse", serverId, currentNodeId],
-    queryFn: () => fetchBrowse(currentNodeId, serverId),
+    queryKey: ["browse", currentNodeId],
+    queryFn: () => fetchBrowse(currentNodeId),
     retry: false,
   });
 
@@ -517,7 +450,7 @@ function AddressSpaceTab() {
     if (node.node_class === "Variable") {
       setReadingValue(true);
       try {
-        const val = await readNodeValue(node.node_id, serverId);
+        const val = await readNodeValue(node.node_id);
         setNodeValue(val);
       } catch {
         setNodeValue({ error: "Could not read value" });
@@ -695,10 +628,9 @@ function AddressSpaceTab() {
 
 // ── Tab: Subscriptions ─────────────────────────────────────────────────────
 function SubscriptionsTab() {
-  const { serverId } = useServer();
   const { data: subs = [], isLoading, refetch } = useQuery({
-    queryKey: ["subscriptions", serverId],
-    queryFn: () => fetchSubscriptions(serverId),
+    queryKey: ["subscriptions"],
+    queryFn: fetchSubscriptions,
     refetchInterval: 5000,
   });
   const [search, setSearch] = useState("");
@@ -978,7 +910,7 @@ function SecurityTab() {
                   alignItems: "center", justifyContent: "center" }}>{step}</span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{title}</span>
               </div>
-              <pre style={{ fontSize: 11, background: "#1e293b", color: "#e2e8f0",
+              <pre style={{ fontSize: 11, color: "#374151", background: "#1e293b", 
                 padding: 10, borderRadius: 6, overflow: "auto", margin: 0, lineHeight: 1.6 }}>
                 {cmd}
               </pre>
@@ -1024,202 +956,3 @@ const cardTitle: React.CSSProperties = {
   color: "#1e293b",
   marginBottom: 4,
 };
-
-// ── Tab: Servers (multi-server management) ─────────────────────────────────
-function ServersTab({ onConnectToView }: { onConnectToView: () => void }) {
-  const qc = useQueryClient();
-  const { servers } = useServer();
-  const [showAdd, setShowAdd] = useState(false);
-  const [err, setErr] = useState("");
-
-  const addMut = useMutation({
-    mutationFn: (b: OpcServerInput) => addServer(b),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["servers"] }); setShowAdd(false); setErr(""); },
-    onError: (e: any) => setErr(e?.response?.data?.detail ?? "Failed to add server"),
-  });
-  const removeMut = useMutation({
-    mutationFn: (id: string) => removeServer(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["servers"] }),
-    onError: (e: any) => alert(e?.response?.data?.detail ?? "Failed to remove server"),
-  });
-
-  return (
-    <div>
-      <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ flex: 1, fontSize: 13, color: "#64748b" }}>
-          {servers.length} server{servers.length !== 1 ? "s" : ""} configured. Select one above to inspect its
-          connection, address space, subscriptions, and metrics.
-        </div>
-        <button
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px",
-            borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff",
-            fontSize: 13, fontWeight: 500, cursor: "pointer" }}
-          onClick={() => { setErr(""); setShowAdd(true); }}
-        >
-          <Plus size={16} /> Add Server
-        </button>
-      </div>
-
-      {servers.length === 0 ? (
-        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0",
-          padding: 48, textAlign: "center", color: "#94a3b8" }}>
-          <Server size={40} style={{ display: "block", margin: "0 auto 12px", opacity: 0.3 }} />
-          No servers configured. Click “Add Server” to connect one.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16 }}>
-          {servers.map((s) => (
-            <ServerStatusCard key={s.id} server={s}
-              onRemove={() => { if (confirm(`Disable & disconnect "${s.name}"?`)) removeMut.mutate(s.id); }} />
-          ))}
-        </div>
-      )}
-
-      {showAdd && (
-        <AddServerModal error={err} busy={addMut.isPending}
-          onCancel={() => { setShowAdd(false); setErr(""); }}
-          onSubmit={(b) => addMut.mutate(b)} />
-      )}
-    </div>
-  );
-}
-
-function ServerStatusCard({ server, onRemove }: { server: OpcServer; onRemove: () => void }) {
-  const connected = server.connected;
-  const secure = server.security_mode && server.security_mode !== "None";
-  const statusColor = connected ? "#22c55e" : server.last_error ? "#dc2626" : "#94a3b8";
-  const badge = (color: string, text: string) => (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 500,
-      padding: "3px 8px", borderRadius: 12, background: `${color}18`, color }}>{text}</span>
-  );
-  return (
-    <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0",
-      padding: 18, display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-        <div style={{ width: 36, height: 36, borderRadius: 8, flexShrink: 0, background: `${statusColor}18`,
-          display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <Server size={18} color={statusColor} />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{server.name}</div>
-          <div style={{ fontSize: 12, color: "#94a3b8", wordBreak: "break-all" }}>{server.endpoint_url}</div>
-        </div>
-        <button title="Disable & remove"
-          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28,
-            borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", color: "#dc2626" }}
-          onClick={onRemove}>
-          <Trash2 size={14} />
-        </button>
-      </div>
-      {server.description && <div style={{ fontSize: 12, color: "#64748b" }}>{server.description}</div>}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {badge(statusColor, connected ? "Connected" : server.last_error ? "Error" : "Offline")}
-        {badge(secure ? "#7c3aed" : "#94a3b8", secure ? server.security_mode : "No security")}
-        {typeof server.tag_count === "number" && badge("#0ea5e9", `${server.tag_count} tags`)}
-      </div>
-      {server.last_error && (
-        <div style={{ fontSize: 11, color: "#dc2626", background: "#fef2f2", padding: "6px 8px", borderRadius: 6,
-          wordBreak: "break-word" }}>{server.last_error}</div>
-      )}
-    </div>
-  );
-}
-
-function AddServerModal({ error, busy, onCancel, onSubmit }: {
-  error: string; busy: boolean; onCancel: () => void; onSubmit: (b: OpcServerInput) => void;
-}) {
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("opc.tcp://");
-  const [secMode, setSecMode] = useState("None");
-  const [secPolicy, setSecPolicy] = useState("None");
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [publishMs, setPublishMs] = useState(1000);
-  const [description, setDescription] = useState("");
-  const secured = secMode !== "None";
-  const inp: React.CSSProperties = { width: "100%", padding: "8px 10px", borderRadius: 6,
-    border: "1px solid #e2e8f0", fontSize: 13, boxSizing: "border-box" };
-  const lbl: React.CSSProperties = { fontSize: 12, color: "#64748b", marginBottom: 4, display: "block" };
-
-  const submit = () => {
-    if (!name.trim() || !url.trim()) return;
-    onSubmit({
-      name: name.trim(), endpoint_url: url.trim(), security_mode: secMode,
-      security_policy: secured ? secPolicy : "None",
-      username: username.trim() || null, password: password || null,
-      publish_interval_ms: publishMs, description: description.trim() || null,
-    });
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex",
-      alignItems: "center", justifyContent: "center", zIndex: 50 }} onClick={onCancel}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: 24, width: 520, maxWidth: "94vw",
-        maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}
-        onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>Add OPC UA Server</h2>
-          <button style={{ background: "none", border: "none", cursor: "pointer", color: "#64748b" }} onClick={onCancel}>
-            <X size={18} />
-          </button>
-        </div>
-        <label style={lbl}>Name *</label>
-        <input style={{ ...inp, marginBottom: 12 }} value={name} autoFocus
-          onChange={(e) => setName(e.target.value)} placeholder="e.g. Plant PLC 2" />
-        <label style={lbl}>Endpoint URL *</label>
-        <input style={{ ...inp, marginBottom: 12 }} value={url}
-          onChange={(e) => setUrl(e.target.value)} placeholder="opc.tcp://192.168.1.50:4840" />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={lbl}>Security Mode</label>
-            <select style={inp} value={secMode} onChange={(e) => setSecMode(e.target.value)}>
-              <option value="None">None</option><option value="Sign">Sign</option>
-              <option value="SignAndEncrypt">SignAndEncrypt</option>
-            </select>
-          </div>
-          <div>
-            <label style={lbl}>Security Policy</label>
-            <select style={{ ...inp, opacity: secured ? 1 : 0.5 }} value={secPolicy}
-              disabled={!secured} onChange={(e) => setSecPolicy(e.target.value)}>
-              <option value="None">None</option><option value="Basic256Sha256">Basic256Sha256</option>
-              <option value="Aes128_Sha256_RsaOaep">Aes128_Sha256_RsaOaep</option>
-              <option value="Aes256_Sha256_RsaPss">Aes256_Sha256_RsaPss</option>
-            </select>
-          </div>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div>
-            <label style={lbl}>Username (optional)</label>
-            <input style={inp} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="anonymous if blank" />
-          </div>
-          <div>
-            <label style={lbl}>Password (optional)</label>
-            <input style={inp} type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
-          </div>
-        </div>
-        <label style={lbl}>Publish interval (ms)</label>
-        <input style={{ ...inp, marginBottom: 12 }} type="number" min={100} step={100}
-          value={publishMs} onChange={(e) => setPublishMs(+e.target.value || 1000)} />
-        <label style={lbl}>Description (optional)</label>
-        <input style={{ ...inp, marginBottom: 16 }} value={description}
-          onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Line 2 controller" />
-        {secured && (
-          <div style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a",
-            borderRadius: 6, padding: "8px 10px", marginBottom: 14 }}>
-            Secured connections may require a client certificate trusted by the server.
-          </div>
-        )}
-        {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#f1f5f9",
-            color: "#334155", fontSize: 13, fontWeight: 500, cursor: "pointer" }} onClick={onCancel}>Cancel</button>
-          <button style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#0ea5e9",
-            color: "#fff", fontSize: 13, fontWeight: 500, cursor: "pointer" }}
-            disabled={busy || !name.trim() || !url.trim()} onClick={submit}>
-            {busy ? "Adding…" : "Add Server"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}

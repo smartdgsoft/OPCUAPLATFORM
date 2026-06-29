@@ -184,30 +184,16 @@ async def browse_address_space(
 
 @router.get("/subscriptions")
 async def get_subscriptions(
-    server_id: Optional[str] = Query(None),
     pool: asyncpg.Pool = Depends(get_pool),
     redis: aioredis.Redis = Depends(get_redis),
     _: UserOut = Depends(get_current_user),
 ):
-    """All active subscribed tags with live values from Redis cache.
-
-    When server_id is provided (and not the single-server 'default'), only
-    tags belonging to that server are returned.
-    """
-    if server_id and server_id != "default":
-        rows = await pool.fetch("""
-            SELECT t.id::text AS tag_id, t.node_id, t.display_name,
-                   t.engineering_unit, t.sample_interval_ms, t.deadband_value, t.is_active
-            FROM tags t
-            WHERE t.is_active = TRUE AND t.server_id = $1::uuid
-            ORDER BY t.display_name
-        """, server_id)
-    else:
-        rows = await pool.fetch("""
-            SELECT t.id::text AS tag_id, t.node_id, t.display_name,
-                   t.engineering_unit, t.sample_interval_ms, t.deadband_value, t.is_active
-            FROM tags t WHERE t.is_active = TRUE ORDER BY t.display_name
-        """)
+    """All active subscribed tags with live values from Redis cache."""
+    rows = await pool.fetch("""
+        SELECT t.id::text AS tag_id, t.node_id, t.display_name,
+               t.engineering_unit, t.sample_interval_ms, t.deadband_value, t.is_active
+        FROM tags t WHERE t.is_active = TRUE ORDER BY t.display_name
+    """)
     keys = [f"tag:live:{r['tag_id']}" for r in rows]
     live_vals = await redis.mget(*keys) if keys else []
     result = []
