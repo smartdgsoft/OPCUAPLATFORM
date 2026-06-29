@@ -45,37 +45,21 @@ class ClientMetrics(BaseModel):
 
 
 async def _fetch_client_metrics() -> Dict[str, float]:
-    """Pull metrics from the OPC UA client Prometheus endpoint.
-
-    Prometheus exposes labeled series like:
-        opcua_values_received_total{node_id="ns=3;s=Foo"} 75.0
-    We aggregate by stripping the {labels} suffix and SUMMING all series
-    that share the same base metric name, so per-node counters roll up
-    into a single total.
-    """
+    """Pull metrics from the OPC UA client Prometheus endpoint."""
     import httpx
     try:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get("http://opcua-client:9090/metrics")
             metrics: Dict[str, float] = {}
             for line in resp.text.splitlines():
-                if line.startswith("#") or not line.strip():
+                if line.startswith("#"):
                     continue
-                # Split metric token from value (value is the last field).
-                idx = line.rfind(" ")
-                if idx == -1:
-                    continue
-                name_token = line[:idx].strip()
-                value_str = line[idx + 1:].strip()
-                try:
-                    value = float(value_str)
-                except ValueError:
-                    continue
-                # Strip any {label="..."} suffix to get the base metric name.
-                brace = name_token.find("{")
-                base = name_token[:brace] if brace != -1 else name_token
-                # Sum across all labeled series of the same base metric.
-                metrics[base] = metrics.get(base, 0.0) + value
+                parts = line.split()
+                if len(parts) == 2:
+                    try:
+                        metrics[parts[0]] = float(parts[1])
+                    except ValueError:
+                        pass
             return metrics
     except Exception:
         return {}
@@ -116,28 +100,8 @@ async def get_connection_status(
 
 
 @router.get("/metrics", response_model=ClientMetrics)
-async def get_client_metrics(
-    redis: aioredis.Redis = Depends(get_redis),
-    _: UserOut = Depends(get_current_user),
-):
+async def get_client_metrics(_: UserOut = Depends(get_current_user)):
     m = await _fetch_client_metrics()
-
-    # Derive the real connection state the same way /status does, rather than
-    # trusting opcua_connection_status (which the client may not export).
-    heartbeat = await redis.get("opcua:client:heartbeat")
-    servers_raw = await redis.get("opcua:client:servers")
-    connected = m.get("opcua_connection_status", 0) == 1 or heartbeat == "ok"
-    if servers_raw:
-        try:
-            servers = json.loads(servers_raw)
-            if servers:
-                connected = connected or any(s.get("connected") for s in servers)
-        except Exception:
-            pass
-    # If the client is writing rows and the queue is healthy, it is connected.
-    if not connected and m.get("opcua_rows_written_total", 0) > 0 and heartbeat == "ok":
-        connected = True
-
     return ClientMetrics(
         values_received_total=m.get("opcua_values_received_total", 0),
         values_filtered_total=m.get("opcua_values_filtered_total", 0),
@@ -145,7 +109,7 @@ async def get_client_metrics(
         rows_buffered_total=m.get("opcua_rows_buffered_total", 0),
         write_errors_total=m.get("opcua_write_errors_total", 0),
         queue_depth=m.get("opcua_queue_depth", 0),
-        connection_status=1.0 if connected else 0.0,
+        connection_status=m.get("opcua_connection_status", 0),
         reconnect_total=m.get("opcua_reconnect_total", 0),
     )
 
