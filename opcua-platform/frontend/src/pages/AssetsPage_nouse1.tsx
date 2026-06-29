@@ -98,35 +98,16 @@ export default function AssetsPage() {
     const nextLevel = Math.min((asset.level_id ?? 1) + 1, 5);
 
     return (
-      <div style={{ position: "relative" }}>
+      <div>
         <div
           style={{
             display: "flex", alignItems: "center", gap: 12,
-            padding: "12px 16px",
-            paddingLeft: 16 + depth * 28,
+            padding: "12px 16px", marginLeft: depth * 24,
             borderBottom: "1px solid #f1f5f9",
-            background: depth === 0 ? "#f8fafc" : "#fff",
-            position: "relative",
+            background: depth === 0 ? "#fafafa" : "#fff",
           }}
         >
-          {/* Tree connector: vertical + horizontal elbow for nested rows */}
-          {depth > 0 && (
-            <span
-              aria-hidden
-              style={{
-                position: "absolute",
-                left: 16 + (depth - 1) * 28 + 3,
-                top: 0, bottom: 0, width: 18,
-                borderLeft: "2px solid #e2e8f0",
-              }}
-            >
-              <span style={{
-                position: "absolute", left: 0, top: "50%", width: 14,
-                borderTop: "2px solid #e2e8f0",
-              }} />
-            </span>
-          )}
-          <div style={{ width: 9, height: 9, borderRadius: "50%", background: color, flexShrink: 0, zIndex: 1 }} />
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: depth === 0 ? 600 : 500, color: "#1e293b" }}>
               {asset.name}
@@ -187,26 +168,14 @@ export default function AssetsPage() {
         </button>
       </div>
 
-      {roots.length === 0 ? (
-        <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0" }}>
+      <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #e2e8f0", overflow: "hidden" }}>
+        {roots.length === 0 ? (
           <div style={{ textAlign: "center", padding: 60, color: "#94a3b8" }}>
             <Building2 size={40} style={{ display: "block", margin: "0 auto 12px", opacity: 0.3 }} />
             No assets configured. Click “New Root Asset” to begin.
           </div>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-          {roots.map((r) => (
-            <div key={r.id} style={{
-              background: "#fff", borderRadius: 12,
-              border: "1px solid #e2e8f0", overflow: "hidden",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-            }}>
-              <AssetNode asset={r} />
-            </div>
-          ))}
-        </div>
-      )}
+        ) : roots.map((r) => <AssetNode key={r.id} asset={r} />)}
+      </div>
 
       {edit && (
         <AssetEditor
