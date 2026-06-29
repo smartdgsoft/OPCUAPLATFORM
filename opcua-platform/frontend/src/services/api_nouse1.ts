@@ -6,28 +6,7 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
-// FastAPI expects list query params as repeated keys: tag_ids=a&tag_ids=b
-// (not the default axios tag_ids[]=a&tag_ids[]=b). This serializer emits
-// repeated keys for arrays and skips null/undefined, using only built-ins.
-function serializeParams(params: Record<string, unknown>): string {
-  const sp = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    if (Array.isArray(value)) {
-      for (const v of value) {
-        if (v !== undefined && v !== null) sp.append(key, String(v));
-      }
-    } else {
-      sp.append(key, String(value));
-    }
-  }
-  return sp.toString();
-}
-
-export const api = axios.create({
-  baseURL: `${API_BASE}/api`,
-  paramsSerializer: serializeParams,
-});
+export const api = axios.create({ baseURL: `${API_BASE}/api` });
 
 // Inject token from localStorage
 api.interceptors.request.use((cfg) => {
