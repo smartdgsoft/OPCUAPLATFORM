@@ -15,9 +15,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440
 
-    # Stored as a plain comma-separated string to avoid pydantic-settings
-    # JSON-parsing List[str] env values. Use cors_origins_list to get the list.
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: List[str] = ["http://localhost:3000"]
     log_level: str = "INFO"
 
     # OPC UA server (single-server mode reference for mgmt endpoints)
@@ -29,11 +27,6 @@ class Settings(BaseSettings):
     feature_write: bool = True
     feature_methods: bool = True
     feature_multi_server: bool = False
-    feature_digital_twin: bool = False
-
-    @property
-    def cors_origins_list(self) -> List[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def pg_dsn_sync(self) -> str:
