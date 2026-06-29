@@ -98,7 +98,22 @@ services:
       - ./opcua-client/certs:/app/certs
     networks:
       - opcua-net
-
+  opcua-simulator:
+        image: mcr.microsoft.com/iotedge/opc-plc:latest
+        container_name: opcua-simulator
+        restart: unless-stopped
+        command:
+          - "--pn=50000"
+          - "--autoaccept"
+          - "--unsecuretransport"
+          - "--sph"
+          - "--sn=25"
+          - "--sr=10"
+          - "--fn=5"
+        ports:
+          - "50000:50000"
+        networks:
+          - opcua-net
   # ─────────────────────────────────────────────
   # FastAPI Backend
   # ─────────────────────────────────────────────
@@ -119,7 +134,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-change_this_jwt_secret_256bit}
       - JWT_ALGORITHM=HS256
       - JWT_EXPIRE_MINUTES=1440
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000,http://localhost:80}
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:80","http://34.131.90.115","http://34.131.90.115:3000"]
       - OPC_SERVER_URL=${OPC_SERVER_URL:-opc.tcp://localhost:4840}
       - OPC_SECURITY_MODE=${OPC_SECURITY_MODE:-None}
       - OPC_SECURITY_POLICY=${OPC_SECURITY_POLICY:-None}
@@ -128,7 +143,6 @@ services:
       - FEATURE_MULTI_SERVER=${FEATURE_MULTI_SERVER:-false}
       - FEATURE_ALARM_EVAL=${FEATURE_ALARM_EVAL:-true}
       - FEATURE_SCHEDULER=${FEATURE_SCHEDULER:-false}
-      - FEATURE_DIGITAL_TWIN=${FEATURE_DIGITAL_TWIN:-false}
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -154,32 +168,6 @@ services:
       - opcua-net
     depends_on:
       - api
-
-  # ─────────────────────────────────────────────
-  # Twin Evaluator — Digital Twin status tier (on-demand)
-  # Only runs when FEATURE_DIGITAL_TWIN=true.
-  # ─────────────────────────────────────────────
-  twin-evaluator:
-    build:
-      context: ./twin-evaluator
-      dockerfile: Dockerfile
-    container_name: opcua-twin-evaluator
-    restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - POSTGRES_DSN=postgresql://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@timescaledb:5432/${POSTGRES_DB:-opcua}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379/0
-      - TWIN_EVAL_INTERVAL_S=${TWIN_EVAL_INTERVAL_S:-5}
-      - TWIN_LEARN_REFRESH_S=${TWIN_LEARN_REFRESH_S:-3600}
-      - TWIN_STALE_AFTER_S=${TWIN_STALE_AFTER_S:-30}
-      - TWIN_METRICS_PORT=9092
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    networks:
-      - opcua-net
 
   # ─────────────────────────────────────────────
   # Grafana — ops dashboards

@@ -10,7 +10,6 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from src.auth.router import router as auth_router
 from src.routers import tags, assets, history, alarms, analytics, ws, opcua_mgmt
 from src.routers import write, methods, servers as servers_router
-from src.routers import twin as twin_router
 from src.db.database import init_db, close_db
 from src.config.settings import settings
 from src.utils.logging import configure_logging
@@ -21,7 +20,6 @@ logger = structlog.get_logger(__name__)
 FEATURE_WRITE   = os.getenv("FEATURE_WRITE",   "true").lower()  == "true"
 FEATURE_METHODS = os.getenv("FEATURE_METHODS", "true").lower()  == "true"
 FEATURE_MULTI   = os.getenv("FEATURE_MULTI_SERVER","false").lower() == "true"
-FEATURE_TWIN    = os.getenv("FEATURE_DIGITAL_TWIN","false").lower() == "true"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -65,10 +63,6 @@ if FEATURE_METHODS:
     app.include_router(methods.router, prefix="/api/methods",    tags=["methods"])
     logger.info("feature_enabled", feature="methods")
 
-if FEATURE_TWIN:
-    app.include_router(twin_router.router, prefix="/api/twin",   tags=["digital-twin"])
-    logger.info("feature_enabled", feature="digital_twin")
-
 @app.get("/api/health")
 async def health():
     return {
@@ -87,7 +81,6 @@ async def features():
         "write":         FEATURE_WRITE,
         "methods":       FEATURE_METHODS,
         "multi_server":  FEATURE_MULTI,
-        "digital_twin":  FEATURE_TWIN,
         "kafka":         os.getenv("KAFKA_ENABLED","false").lower() == "true",
         "alarm_eval":    os.getenv("FEATURE_ALARM_EVAL","true").lower() == "true",
         "scheduler":     os.getenv("FEATURE_SCHEDULER","false").lower() == "true",
