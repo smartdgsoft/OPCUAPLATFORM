@@ -60,8 +60,8 @@ class WriteResult:
     request_id:   str
     server_id:    str
     node_id:      str
+    success:      bool
     value_written: Any
-    success:      bool          = False
     readback_value: Any         = None
     readback_match: bool        = True
     error:        str           = ""
