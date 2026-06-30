@@ -13,7 +13,6 @@ import OpcUAClientPage from "./pages/OpcUAClientPage";
 import WriteControlPage from "./pages/WriteControlPage";
 import MethodCallPage from "./pages/MethodCallPage";
 import DigitalTwinPage from "./pages/DigitalTwinPage";
-import PredictivePage from "./pages/PredictivePage";
 import { useAuthStore } from "./store/authStore";
 
 const qc = new QueryClient({
@@ -41,7 +40,6 @@ export default function App() {
             <Route path="alarms"     element={<AlarmsPage />} />
             <Route path="assets"     element={<AssetsPage />} />
             <Route path="twin"        element={<DigitalTwinPage />} />
-            <Route path="predictive"  element={<PredictivePage />} />
             <Route path="analytics"  element={<AnalyticsPage />} />
             <Route path="tags"       element={<TagsPage />} />
           </Route>

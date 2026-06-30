@@ -129,7 +129,6 @@ services:
       - FEATURE_ALARM_EVAL=${FEATURE_ALARM_EVAL:-true}
       - FEATURE_SCHEDULER=${FEATURE_SCHEDULER:-false}
       - FEATURE_DIGITAL_TWIN=${FEATURE_DIGITAL_TWIN:-false}
-      - FEATURE_TWIN_PREDICTIVE=${FEATURE_TWIN_PREDICTIVE:-false}
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -178,31 +177,6 @@ services:
       - TWIN_LEARN_REFRESH_S=${TWIN_LEARN_REFRESH_S:-3600}
       - TWIN_STALE_AFTER_S=${TWIN_STALE_AFTER_S:-30}
       - TWIN_METRICS_PORT=9092
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    networks:
-      - opcua-net
-
-  # ─────────────────────────────────────────────
-  # Twin Predictive — enterprise predictive module (on-demand)
-  # Only runs when FEATURE_TWIN_PREDICTIVE=true. Owns ML deps.
-  # ─────────────────────────────────────────────
-  twin-predictive:
-    build:
-      context: ./twin-predictive
-      dockerfile: Dockerfile
-    container_name: opcua-twin-predictive
-    restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - POSTGRES_DSN=postgresql://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@timescaledb:5432/${POSTGRES_DB:-opcua}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379/0
-      - PRED_SCORE_INTERVAL_S=${PRED_SCORE_INTERVAL_S:-30}
-      - PRED_RETRAIN_CHECK_S=${PRED_RETRAIN_CHECK_S:-3600}
-      - PRED_METRICS_PORT=9093
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     networks:
       - opcua-net

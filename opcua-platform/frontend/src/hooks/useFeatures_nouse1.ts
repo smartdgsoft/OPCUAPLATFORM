@@ -6,7 +6,6 @@ export interface PlatformFeatures {
   methods:      boolean;
   multi_server: boolean;
   digital_twin: boolean;
-  twin_predictive: boolean;
   kafka:        boolean;
   alarm_eval:   boolean;
   scheduler:    boolean;
@@ -15,7 +14,6 @@ export interface PlatformFeatures {
 
 const DEFAULT_FEATURES: PlatformFeatures = {
   write: false, methods: false, multi_server: false, digital_twin: false,
-  twin_predictive: false,
   kafka: false, alarm_eval: true, scheduler: false, edge_sync: false,
 };
 
