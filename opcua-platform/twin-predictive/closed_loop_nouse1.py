@@ -88,15 +88,6 @@ async def evaluate_rules(pool: asyncpg.Pool, redis: aioredis.Redis) -> int:
         rule = dict(r)
         rid = rule["id"]
 
-        # Don't pile up recommendations: if one for this rule is still pending,
-        # skip until it's decided. Prevents flooding the approval queue when a
-        # trigger condition stays true.
-        already_pending = await pool.fetchval(
-            "SELECT 1 FROM cl_recommendations WHERE rule_id=$1::uuid AND status='pending' LIMIT 1",
-            rid)
-        if already_pending:
-            continue
-
         # cooldown: skip if a recent recommendation exists for this rule
         last = await pool.fetchval(
             "SELECT MAX(created_at) FROM cl_recommendations WHERE rule_id=$1::uuid", rid)
