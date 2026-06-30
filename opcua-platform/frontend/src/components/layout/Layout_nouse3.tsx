@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { LayoutDashboard, History, Bell, Building2, BarChart3,
-         Tag, LogOut, Menu, X, Wifi, Send, Zap, Boxes, Brain, ShieldCheck } from "lucide-react";
+         Tag, LogOut, Menu, X, Wifi, Send, Zap, Boxes, Brain } from "lucide-react";
 import { useAuthStore } from "../../store/authStore";
 import { useFeatures } from "../../hooks/useFeatures";
 
@@ -21,7 +21,6 @@ export default function Layout() {
     { to: "/assets",    label: "Assets",       Icon: Building2,       always: true },
     { to: "/twin",      label: "Digital Twin", Icon: Boxes,           always: features.digital_twin },
     { to: "/predictive",label: "Predictive",   Icon: Brain,           always: features.twin_predictive },
-    { to: "/closed-loop",label: "Closed-Loop",  Icon: ShieldCheck,     always: features.closed_loop_advisory },
     { to: "/analytics", label: "Analytics",    Icon: BarChart3,       always: true },
     { to: "/tags",      label: "Tags",         Icon: Tag,             always: true },
   ].filter(n => n.always);

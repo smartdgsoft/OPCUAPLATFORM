@@ -23,7 +23,6 @@ import structlog
 from prometheus_client import start_http_server, Counter, Gauge
 
 from core import score_model, train_model, activate_version, active_version
-from closed_loop import evaluate_rules
 
 logger = structlog.get_logger(__name__)
 
@@ -34,14 +33,12 @@ POSTGRES_DSN = os.getenv(
 REDIS_URL = os.getenv("REDIS_URL", "redis://:redis_pass@redis:6379/0")
 SCORE_INTERVAL_S = float(os.getenv("PRED_SCORE_INTERVAL_S", "30"))
 RETRAIN_CHECK_S = float(os.getenv("PRED_RETRAIN_CHECK_S", "3600"))
-ADVISORY_ENABLED = os.getenv("FEATURE_CLOSED_LOOP_ADVISORY", "false").lower() == "true"
 METRICS_PORT = int(os.getenv("PRED_METRICS_PORT", "9093"))
 
 DETECTIONS = Counter("pred_detections_total", "Detections written", ["method", "severity"])
 MODELS_SCORED = Counter("pred_models_scored_total", "Model scoring passes")
 ACTIVE_MODELS = Gauge("pred_active_models", "Models with an active version")
 SCORE_ERRORS = Counter("pred_score_errors_total", "Scoring errors")
-RECOMMENDATIONS = Counter("cl_recommendations_total", "Advisory recommendations created")
 
 
 async def score_pass(pool: asyncpg.Pool) -> None:
@@ -127,8 +124,7 @@ async def main() -> None:
     structlog.configure(processors=[structlog.processors.JSONRenderer()])
     start_http_server(METRICS_PORT)
     logger.info("predictive_service_starting",
-                score_interval_s=SCORE_INTERVAL_S, metrics_port=METRICS_PORT,
-                advisory_enabled=ADVISORY_ENABLED)
+                score_interval_s=SCORE_INTERVAL_S, metrics_port=METRICS_PORT)
 
     pool = await asyncpg.create_pool(POSTGRES_DSN, min_size=2, max_size=8)
     redis = aioredis.from_url(REDIS_URL, decode_responses=True)
@@ -140,13 +136,6 @@ async def main() -> None:
     while True:
         try:
             await score_pass(pool)
-            if ADVISORY_ENABLED:
-                try:
-                    n = await evaluate_rules(pool, redis)
-                    if n:
-                        RECOMMENDATIONS.inc(n)
-                except Exception as exc:
-                    logger.error("advisory_error", error=str(exc))
             now = asyncio.get_event_loop().time()
             if now - last_retrain_check >= RETRAIN_CHECK_S:
                 await maybe_retrain(pool)
