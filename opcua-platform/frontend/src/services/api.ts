@@ -342,3 +342,80 @@ export const fetchPredAudit = (id: string): Promise<PredAudit[]> =>
   api.get<PredAudit[]>(`/predictive/models/${id}/audit`).then((r) => r.data);
 export const fetchPredDrift = (id: string): Promise<PredDrift[]> =>
   api.get<PredDrift[]>(`/predictive/models/${id}/drift`).then((r) => r.data);
+
+// ── Closed-loop advisory ────────────────────────────────────────────────────
+export interface ClRule {
+  id: string; twin_id: string; twin_name: string; name: string; description?: string;
+  enabled: boolean; trigger_type: string; source_tag_id?: string | null;
+  trigger_op?: string | null; trigger_value?: number | null;
+  target_tag_id?: string | null; target_server_id?: string | null;
+  action_type: string; action_value?: number | null; source_target?: number | null;
+  gain?: number | null; safety_min?: number | null; safety_max?: number | null;
+  max_step?: number | null; cooldown_s: number; severity?: string;
+}
+export interface ClRecommendation {
+  id: string; rule_id: string; twin_id: string;
+  source_tag_id?: string | null; source_value?: number | null;
+  target_tag_id?: string | null; target_server_id?: string | null;
+  current_value?: number | null; recommended_value?: number | null; clamped?: boolean;
+  severity?: string; title?: string; detail?: string; rationale: any;
+  status: string; decided_by?: string | null; decided_at?: string | null;
+  decision_note?: string | null; write_request_id?: string | null;
+  applied_at?: string | null; expires_at?: string | null; created_at: string;
+}
+export interface ClRuleInput {
+  twin_id: string; name: string; description?: string | null;
+  trigger_type?: string; source_tag_id?: string | null;
+  trigger_op?: string | null; trigger_value?: number | null;
+  target_tag_id?: string | null; target_server_id?: string | null;
+  action_type?: string; action_value?: number | null; source_target?: number | null;
+  gain?: number | null; safety_min?: number | null; safety_max?: number | null;
+  max_step?: number | null; cooldown_s?: number; severity?: string;
+}
+
+export const fetchClRules = (twinId?: string): Promise<ClRule[]> =>
+  api.get<ClRule[]>("/closed-loop/rules", { params: twinId ? { twin_id: twinId } : {} }).then((r) => r.data);
+export const createClRule = (b: ClRuleInput): Promise<{ id: string }> =>
+  api.post("/closed-loop/rules", b).then((r) => r.data);
+export const updateClRule = (id: string, b: Partial<ClRuleInput> & { enabled?: boolean }): Promise<{ id: string }> =>
+  api.put(`/closed-loop/rules/${id}`, b).then((r) => r.data);
+export const deleteClRule = (id: string): Promise<void> =>
+  api.delete(`/closed-loop/rules/${id}`).then(() => undefined);
+export const fetchClRecommendations = (params?: { twin_id?: string; status?: string }): Promise<ClRecommendation[]> =>
+  api.get<ClRecommendation[]>("/closed-loop/recommendations", { params }).then((r) => r.data);
+export const approveClRecommendation = (id: string, note?: string): Promise<any> =>
+  api.post(`/closed-loop/recommendations/${id}/approve`, { note }).then((r) => r.data);
+export const rejectClRecommendation = (id: string, note?: string): Promise<any> =>
+  api.post(`/closed-loop/recommendations/${id}/reject`, { note }).then((r) => r.data);
+
+// ── Connectivity (sources) ──────────────────────────────────────────────────
+export interface ConnectorType {
+  key: string; name: string; mode: string; available: boolean; note: string;
+}
+export interface Source {
+  id: string; name: string; source_type: string; mode: string; config: any;
+  poll_interval_ms: number; enabled: boolean; writable: boolean; description?: string;
+  last_status?: string | null; last_error?: string | null; last_seen?: string | null;
+  stream_count: number;
+}
+export interface SourceStream {
+  id: string; stream_key: string; display_name: string; engineering_unit?: string;
+  data_type: string; tag_id?: string | null; is_active: boolean; asset_id?: string | null;
+}
+export interface SourceInput {
+  name: string; source_type: string; mode?: string; config?: any;
+  poll_interval_ms?: number; writable?: boolean; description?: string | null;
+}
+
+export const fetchConnectorTypes = (): Promise<ConnectorType[]> =>
+  api.get<ConnectorType[]>("/connectivity/types").then((r) => r.data);
+export const fetchSources = (): Promise<Source[]> =>
+  api.get<Source[]>("/connectivity/sources").then((r) => r.data);
+export const createSource = (b: SourceInput): Promise<{ id: string }> =>
+  api.post("/connectivity/sources", b).then((r) => r.data);
+export const updateSource = (id: string, b: Partial<SourceInput> & { enabled?: boolean }): Promise<{ id: string }> =>
+  api.put(`/connectivity/sources/${id}`, b).then((r) => r.data);
+export const deleteSource = (id: string): Promise<void> =>
+  api.delete(`/connectivity/sources/${id}`).then(() => undefined);
+export const fetchSourceStreams = (id: string): Promise<SourceStream[]> =>
+  api.get<SourceStream[]>(`/connectivity/sources/${id}/streams`).then((r) => r.data);
