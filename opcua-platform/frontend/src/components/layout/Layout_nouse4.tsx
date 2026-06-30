@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { LayoutDashboard, History, Bell, Building2, BarChart3,
-         Tag, LogOut, Menu, X, Wifi, Send, Zap, Boxes, Brain, ShieldCheck, Plug } from "lucide-react";
+         Tag, LogOut, Menu, X, Wifi, Send, Zap, Boxes, Brain, ShieldCheck } from "lucide-react";
 import { useAuthStore } from "../../store/authStore";
 import { useFeatures } from "../../hooks/useFeatures";
 
@@ -14,7 +14,6 @@ export default function Layout() {
   const NAV = [
     { to: "/dashboard", label: "Dashboard",    Icon: LayoutDashboard, always: true },
     { to: "/opcua",     label: "OPC UA Client",Icon: Wifi,            always: true },
-    { to: "/connectivity",label: "Data Sources", Icon: Plug,          always: features.connector_hub },
     { to: "/write",     label: "Write Control",Icon: Send,            always: features.write },
     { to: "/methods",   label: "Methods",      Icon: Zap,             always: features.methods },
     { to: "/history",   label: "History",      Icon: History,         always: true },

@@ -131,7 +131,6 @@ services:
       - FEATURE_DIGITAL_TWIN=${FEATURE_DIGITAL_TWIN:-false}
       - FEATURE_TWIN_PREDICTIVE=${FEATURE_TWIN_PREDICTIVE:-false}
       - FEATURE_CLOSED_LOOP_ADVISORY=${FEATURE_CLOSED_LOOP_ADVISORY:-false}
-      - FEATURE_CONNECTOR_HUB=${FEATURE_CONNECTOR_HUB:-false}
       - KAFKA_ENABLED=${KAFKA_ENABLED:-false}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     ports:
@@ -206,30 +205,6 @@ services:
       - PRED_RETRAIN_CHECK_S=${PRED_RETRAIN_CHECK_S:-3600}
       - FEATURE_CLOSED_LOOP_ADVISORY=${FEATURE_CLOSED_LOOP_ADVISORY:-false}
       - PRED_METRICS_PORT=9093
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-    networks:
-      - opcua-net
-
-  # ─────────────────────────────────────────────
-  # Connector Hub — unified connectivity (on-demand)
-  # Runs non-OPC-UA sources (SQL, MQTT, ...). FEATURE_CONNECTOR_HUB=true.
-  # ─────────────────────────────────────────────
-  connector-hub:
-    build:
-      context: ./connector-hub
-      dockerfile: Dockerfile
-    container_name: opcua-connector-hub
-    restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    environment:
-      - POSTGRES_DSN=postgresql://${POSTGRES_USER:-opcua_admin}:${POSTGRES_PASSWORD:-changeme_strong_pass}@timescaledb:5432/${POSTGRES_DB:-opcua}
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-redis_pass}@redis:6379/0
-      - HUB_POLL_TICK_S=${HUB_POLL_TICK_S:-2}
-      - HUB_METRICS_PORT=9094
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     networks:
       - opcua-net

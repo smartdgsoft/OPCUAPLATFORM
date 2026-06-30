@@ -15,7 +15,6 @@ import MethodCallPage from "./pages/MethodCallPage";
 import DigitalTwinPage from "./pages/DigitalTwinPage";
 import PredictivePage from "./pages/PredictivePage";
 import ClosedLoopPage from "./pages/ClosedLoopPage";
-import ConnectivityPage from "./pages/ConnectivityPage";
 import { useAuthStore } from "./store/authStore";
 
 const qc = new QueryClient({
@@ -45,7 +44,6 @@ export default function App() {
             <Route path="twin"        element={<DigitalTwinPage />} />
             <Route path="predictive"  element={<PredictivePage />} />
             <Route path="closed-loop"  element={<ClosedLoopPage />} />
-            <Route path="connectivity" element={<ConnectivityPage />} />
             <Route path="analytics"  element={<AnalyticsPage />} />
             <Route path="tags"       element={<TagsPage />} />
           </Route>
