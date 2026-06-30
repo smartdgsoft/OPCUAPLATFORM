@@ -3,12 +3,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Brain, Plus, Trash2, X, Check, ChevronLeft, Play, History as HistoryIcon,
   RotateCcw, CheckCircle2, Activity, AlertTriangle, GitBranch, Cpu,
-  Settings, Power,
 } from "lucide-react";
 import {
   fetchPredModels, fetchPredMethods, createPredModel, deletePredModel,
   fetchPredVersions, trainPredModel, activatePredVersion, rollbackPredModel,
-  fetchPredAudit, fetchPredDrift, fetchTwins, updatePredModel,
+  fetchPredAudit, fetchPredDrift, fetchTwins,
   type PredModel, type PredMethod, type PredVersion, type PredModelInput,
 } from "../services/api";
 import { useFeatures } from "../hooks/useFeatures";
@@ -21,10 +20,6 @@ const btn = (bg: string, fg = "#fff"): React.CSSProperties => ({
 const iconBtn: React.CSSProperties = {
   display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28,
   borderRadius: 6, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", color: "#64748b",
-};
-const iconBtnLg: React.CSSProperties = {
-  display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 36,
-  borderRadius: 8, border: "1px solid #e2e8f0", background: "#fff", cursor: "pointer", color: "#64748b",
 };
 const inp: React.CSSProperties = {
   width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #e2e8f0",
@@ -252,7 +247,6 @@ function CreateModelModal({ methods, twins, error, busy, onCancel, onSubmit }: {
 function ModelDetail({ modelId, onBack }: { modelId: string; onBack: () => void }) {
   const qc = useQueryClient();
   const [tab, setTab] = useState<"versions" | "audit" | "drift">("versions");
-  const [editing, setEditing] = useState(false);
 
   const { data: models = [] } = useQuery({ queryKey: ["pred-models"], queryFn: () => fetchPredModels() });
   const model = models.find((m) => m.id === modelId);
@@ -277,20 +271,6 @@ function ModelDetail({ modelId, onBack }: { modelId: string; onBack: () => void 
     mutationFn: () => rollbackPredModel(modelId), onSuccess: invalidate,
     onError: (e: any) => alert(e?.response?.data?.detail ?? "Rollback failed"),
   });
-  const updateMut = useMutation({
-    mutationFn: (b: Partial<PredModelInput> & { enabled?: boolean }) => updatePredModel(modelId, b),
-    onSuccess: () => { invalidate(); setEditing(false); },
-    onError: (e: any) => alert(e?.response?.data?.detail ?? "Update failed"),
-  });
-  const toggleMut = useMutation({
-    mutationFn: (enabled: boolean) => updatePredModel(modelId, { enabled }),
-    onSuccess: invalidate,
-  });
-  const deleteMut = useMutation({
-    mutationFn: () => deletePredModel(modelId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["pred-models"] }); onBack(); },
-    onError: (e: any) => alert(e?.response?.data?.detail ?? "Delete failed"),
-  });
 
   return (
     <div>
@@ -304,30 +284,12 @@ function ModelDetail({ modelId, onBack }: { modelId: string; onBack: () => void 
           <Brain size={22} color="#7c3aed" />
         </div>
         <div style={{ flex: 1 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#0f172a",
-            display: "flex", alignItems: "center", gap: 10 }}>
-            {model?.name ?? "Model"}
-            {model && !model.enabled && (
-              <span style={{ fontSize: 12, fontWeight: 500, padding: "3px 10px", borderRadius: 12,
-                background: "#fef3c7", color: "#b45309" }}>disabled</span>
-            )}
-          </h1>
+          <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#0f172a" }}>{model?.name ?? "Model"}</h1>
           <p style={{ color: "#64748b", fontSize: 14, margin: "2px 0 0" }}>
             {model?.twin_name} · {model?.method}
             {model?.active_version != null && <> · <span style={{ color: "#16a34a", fontWeight: 500 }}>v{model.active_version} active</span></>}
           </p>
         </div>
-        <button title="Edit settings" style={iconBtnLg} onClick={() => setEditing(true)}>
-          <Settings size={16} />
-        </button>
-        <button title={model?.enabled ? "Disable model" : "Enable model"} style={iconBtnLg}
-          onClick={() => toggleMut.mutate(!model?.enabled)}>
-          <Power size={16} color={model?.enabled ? "#16a34a" : "#94a3b8"} />
-        </button>
-        <button title="Delete model" style={{ ...iconBtnLg, color: "#dc2626" }}
-          onClick={() => { if (confirm(`Delete model "${model?.name}" and all its versions?`)) deleteMut.mutate(); }}>
-          <Trash2 size={16} />
-        </button>
         <button style={btn("#f1f5f9", "#334155")} disabled={rollbackMut.isPending} onClick={() => rollbackMut.mutate()}>
           <RotateCcw size={15} /> Rollback
         </button>
@@ -335,12 +297,6 @@ function ModelDetail({ modelId, onBack }: { modelId: string; onBack: () => void 
           <Play size={15} /> {trainMut.isPending ? "Requesting…" : "Train new version"}
         </button>
       </div>
-
-      {editing && model && (
-        <ModelSettingsModal model={model} busy={updateMut.isPending}
-          onCancel={() => setEditing(false)}
-          onSubmit={(b) => updateMut.mutate(b)} />
-      )}
 
       {trainMut.isSuccess && (
         <div style={{ ...card, padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#0369a1",
@@ -446,72 +402,6 @@ function VersionRow({ v, onActivate }: { v: PredVersion; onActivate: () => void 
           <CheckCircle2 size={14} /> Activate
         </button>
       )}
-    </div>
-  );
-}
-
-function ModelSettingsModal({ model, busy, onCancel, onSubmit }: {
-  model: PredModel;
-  busy: boolean;
-  onCancel: () => void;
-  onSubmit: (b: Partial<PredModelInput> & { enabled?: boolean }) => void;
-}) {
-  const [name, setName] = useState(model.name);
-  const [description, setDescription] = useState(model.description ?? "");
-  const [trainWindow, setTrainWindow] = useState(model.train_window_hours);
-  const [scoreInterval, setScoreInterval] = useState(model.score_interval_s);
-  const [retrainHours, setRetrainHours] = useState(model.retrain_cron ?? "");
-  const [enabled, setEnabled] = useState(model.enabled);
-
-  return (
-    <div style={overlay} onClick={onCancel}>
-      <div style={modal} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>Model Settings</h2>
-          <button style={iconBtn} onClick={onCancel}><X size={16} /></button>
-        </div>
-
-        <label style={lbl}>Name</label>
-        <input style={{ ...inp, marginBottom: 12 }} value={name} onChange={(e) => setName(e.target.value)} />
-
-        <label style={lbl}>Description</label>
-        <input style={{ ...inp, marginBottom: 12 }} value={description}
-          onChange={(e) => setDescription(e.target.value)} placeholder="Optional" />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-          <div><label style={lbl}>Train window (hours)</label>
-            <input style={inp} type="number" value={trainWindow} onChange={(e) => setTrainWindow(+e.target.value)} /></div>
-          <div><label style={lbl}>Score interval (s)</label>
-            <input style={inp} type="number" value={scoreInterval} onChange={(e) => setScoreInterval(+e.target.value)} /></div>
-        </div>
-
-        <label style={lbl}>Auto-retrain every (hours, blank = manual only)</label>
-        <input style={{ ...inp, marginBottom: 8 }} type="number" value={retrainHours}
-          onChange={(e) => setRetrainHours(e.target.value)} placeholder="manual only" />
-        <div style={{ fontSize: 12, color: "#94a3b8", marginBottom: 14 }}>
-          Tip: leave blank for manual retraining. A low value (e.g. under a few hours) creates many versions.
-        </div>
-
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, cursor: "pointer" }}>
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
-          <span style={{ fontSize: 13, color: "#334155" }}>
-            Model enabled (when off, it stops scoring and auto-retraining)
-          </span>
-        </label>
-
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
-          <button style={btn("#7c3aed")} disabled={busy || !name.trim()}
-            onClick={() => onSubmit({
-              name: name.trim(), description: description.trim() || null,
-              train_window_hours: trainWindow, score_interval_s: scoreInterval,
-              retrain_cron: retrainHours.toString().trim() || null,
-              enabled,
-            })}>
-            <Check size={16} /> Save
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
