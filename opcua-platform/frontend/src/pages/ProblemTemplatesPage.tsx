@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Boxes, Plus, Trash2, X, Check, ChevronLeft, Power, Activity, TrendingUp,
-  Gauge, AlertTriangle, CheckCircle2, Sparkles,
+  Gauge, AlertTriangle, CheckCircle2, Sparkles, Pencil,
 } from "lucide-react";
 import {
   fetchProblemTemplates, fetchProblemInstances, createProblemInstance,
@@ -93,6 +93,7 @@ function MaturityBadge({ maturity, confidence }: { maturity: string; confidence:
 function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [editInst, setEditInst] = useState<ProblemInstance | null>(null);
   const [err, setErr] = useState("");
 
   const { data: instances = [] } = useQuery({ queryKey: ["problem-instances"], queryFn: fetchProblemInstances, refetchInterval: 5000 });
@@ -109,6 +110,11 @@ function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
   const toggleMut = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => updateProblemInstance(id, { enabled }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["problem-instances"] }),
+  });
+  const editMut = useMutation({
+    mutationFn: ({ id, b }: { id: string; b: any }) => updateProblemInstance(id, b),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["problem-instances"] }); setEditInst(null); setErr(""); },
+    onError: (e: any) => setErr(e?.response?.data?.detail ?? "Update failed"),
   });
   const deleteMut = useMutation({
     mutationFn: (id: string) => deleteProblemInstance(id),
@@ -144,6 +150,10 @@ function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
                     <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{i.name}</div>
                     <div style={{ fontSize: 12, color: "#94a3b8" }}>{tmpl?.name || i.template_key}</div>
                   </div>
+                  <button title="Edit" style={iconBtn}
+                    onClick={(e) => { e.stopPropagation(); setErr(""); setEditInst(i); }}>
+                    <Pencil size={13} />
+                  </button>
                   <button title={i.enabled ? "Disable" : "Enable"} style={iconBtn}
                     onClick={(e) => { e.stopPropagation(); toggleMut.mutate({ id: i.id, enabled: !i.enabled }); }}>
                     <Power size={14} color={i.enabled ? "#16a34a" : "#94a3b8"} />
@@ -175,6 +185,11 @@ function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
           error={err} busy={createMut.isPending}
           onCancel={() => { setShowAdd(false); setErr(""); }}
           onSubmit={(b) => createMut.mutate(b)} />
+      )}
+      {editInst && (
+        <EditInstanceModal instance={editInst} error={err} busy={editMut.isPending}
+          onCancel={() => { setEditInst(null); setErr(""); }}
+          onSubmit={(b) => editMut.mutate({ id: editInst.id, b })} />
       )}
     </div>
   );
@@ -423,6 +438,104 @@ function InstanceDetail({ instance, onBack }: { instance: ProblemInstance; onBac
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function EditInstanceModal({ instance, error, busy, onCancel, onSubmit }: {
+  instance: ProblemInstance; error: string; busy: boolean;
+  onCancel: () => void; onSubmit: (b: any) => void;
+}) {
+  const cfg = instance.config || {};
+  const obj = cfg.objective || {};
+  const model = cfg.model || {};
+  const bounds = obj.bounds || {};
+  const isPrescribe = obj.type === "prescribe";
+
+  const [name, setName] = useState(instance.name);
+  const [target, setTarget] = useState(obj.target != null ? String(obj.target) : "");
+  const [boundMin, setBoundMin] = useState(bounds.min != null ? String(bounds.min) : "");
+  const [boundMax, setBoundMax] = useState(
+    // condition-monitoring stores bounds per tag {tag:{max}}; prescribe stores {min,max}
+    bounds.max != null ? String(bounds.max)
+      : (typeof bounds === "object" && Object.values(bounds)[0]
+          ? String((Object.values(bounds)[0] as any).max ?? "") : ""));
+  const [trainWindow, setTrainWindow] = useState(model.train_window_hours ?? 168);
+  const [minSamples, setMinSamples] = useState(model.min_samples != null ? String(model.min_samples) : "");
+  const [evalInterval, setEvalInterval] = useState(instance.eval_interval_s ?? 60);
+
+  const num = (v: string) => (v.trim() === "" ? null : Number(v));
+
+  const submit = () => {
+    if (!name.trim()) return;
+    // rebuild config preserving inputs/action, updating the tunables
+    const newCfg: any = { ...cfg };
+    newCfg.model = { ...model, train_window_hours: trainWindow };
+    if (num(minSamples) !== null) newCfg.model.min_samples = num(minSamples);
+    newCfg.objective = { ...obj };
+    if (isPrescribe) {
+      newCfg.objective.target = num(target);
+      newCfg.objective.bounds = { min: num(boundMin), max: num(boundMax) };
+    } else {
+      // condition monitoring: rebuild per-measurement {max} bounds
+      const b: any = {};
+      (cfg.inputs || []).filter((i: any) => i.role === "measurement").forEach((i: any) => {
+        if (num(boundMax) !== null) b[i.tag_id] = { max: num(boundMax) };
+      });
+      newCfg.objective.bounds = b;
+    }
+    onSubmit({ name: name.trim(), config: newCfg, eval_interval_s: evalInterval });
+  };
+
+  return (
+    <div style={overlay} onClick={onCancel}>
+      <div style={modal} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>Edit Solver</h2>
+          <button style={iconBtn} onClick={onCancel}><X size={16} /></button>
+        </div>
+
+        <label style={lbl}>Name</label>
+        <input style={{ ...inp, marginBottom: 12 }} value={name} onChange={(e) => setName(e.target.value)} />
+
+        <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 6,
+          padding: "8px 10px", marginBottom: 12 }}>
+          Editing tunables for <strong>{instance.template_key}</strong>. Input signal bindings
+          are kept as-is; to change which signals are used, delete and recreate the solver.
+        </div>
+
+        {isPrescribe ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div><label style={lbl}>Target</label>
+              <input style={inp} type="number" value={target} onChange={(e) => setTarget(e.target.value)} /></div>
+            <div><label style={lbl}>Spec min</label>
+              <input style={inp} type="number" value={boundMin} onChange={(e) => setBoundMin(e.target.value)} /></div>
+            <div><label style={lbl}>Spec max</label>
+              <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} /></div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: 12 }}><label style={lbl}>Alarm limit (max)</label>
+            <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} /></div>
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div><label style={lbl}>Train window (h)</label>
+            <input style={inp} type="number" value={trainWindow} onChange={(e) => setTrainWindow(+e.target.value)} /></div>
+          <div><label style={lbl}>Min samples</label>
+            <input style={inp} type="number" value={minSamples} onChange={(e) => setMinSamples(e.target.value)}
+              placeholder="default" /></div>
+          <div><label style={lbl}>Eval interval (s)</label>
+            <input style={inp} type="number" value={evalInterval} onChange={(e) => setEvalInterval(+e.target.value)} /></div>
+        </div>
+
+        {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
+          <button style={btn("#7c3aed")} disabled={busy || !name.trim()} onClick={submit}>
+            <Check size={16} /> Save Changes
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

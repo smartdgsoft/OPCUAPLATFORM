@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Plug, Plus, Trash2, X, Check, Database, Wifi, WifiOff, AlertTriangle,
-  ChevronLeft, List, Power,
+  ChevronLeft, List, Power, Pencil,
 } from "lucide-react";
 import {
   fetchConnectorTypes, fetchSources, createSource, updateSource, deleteSource,
@@ -77,6 +77,7 @@ function Header() {
 function SourceList({ onOpen }: { onOpen: (s: Source) => void }) {
   const qc = useQueryClient();
   const [showAdd, setShowAdd] = useState(false);
+  const [editSource, setEditSource] = useState<Source | null>(null);
   const [err, setErr] = useState("");
 
   const { data: sources = [] } = useQuery({ queryKey: ["sources"], queryFn: fetchSources, refetchInterval: 4000 });
@@ -86,6 +87,11 @@ function SourceList({ onOpen }: { onOpen: (s: Source) => void }) {
     mutationFn: (b: SourceInput) => createSource(b),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["sources"] }); setShowAdd(false); setErr(""); },
     onError: (e: any) => setErr(e?.response?.data?.detail ?? "Failed to create source"),
+  });
+  const updateMut = useMutation({
+    mutationFn: ({ id, b }: { id: string; b: Partial<SourceInput> }) => updateSource(id, b),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["sources"] }); setEditSource(null); setErr(""); },
+    onError: (e: any) => setErr(e?.response?.data?.detail ?? "Failed to update source"),
   });
   const toggleMut = useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => updateSource(id, { enabled }),
@@ -126,6 +132,10 @@ function SourceList({ onOpen }: { onOpen: (s: Source) => void }) {
                     <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b" }}>{s.name}</div>
                     <div style={{ fontSize: 12, color: "#94a3b8" }}>{s.source_type} · {s.mode}</div>
                   </div>
+                  <button title="Edit" style={iconBtn}
+                    onClick={(e) => { e.stopPropagation(); setErr(""); setEditSource(s); }}>
+                    <Pencil size={13} />
+                  </button>
                   <button title={s.enabled ? "Disable" : "Enable"} style={iconBtn}
                     onClick={(e) => { e.stopPropagation(); toggleMut.mutate({ id: s.id, enabled: !s.enabled }); }}>
                     <Power size={14} color={s.enabled ? "#16a34a" : "#94a3b8"} />
@@ -160,32 +170,41 @@ function SourceList({ onOpen }: { onOpen: (s: Source) => void }) {
           onCancel={() => { setShowAdd(false); setErr(""); }}
           onSubmit={(b) => createMut.mutate(b)} />
       )}
+      {editSource && (
+        <AddSourceModal types={types} error={err} busy={updateMut.isPending}
+          existing={editSource}
+          onCancel={() => { setEditSource(null); setErr(""); }}
+          onSubmit={(b) => updateMut.mutate({ id: editSource.id, b })} />
+      )}
     </div>
   );
 }
 
-function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
-  types: ConnectorType[]; error: string; busy: boolean;
+function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
+  types: ConnectorType[]; error: string; busy: boolean; existing?: Source;
   onCancel: () => void; onSubmit: (b: SourceInput) => void;
 }) {
   const available = types.filter((t) => t.available && t.key !== "opcua");
-  const [name, setName] = useState("");
-  const [type, setType] = useState(available[0]?.key ?? "sql");
-  const [pollMs, setPollMs] = useState(5000);
-  const [description, setDescription] = useState("");
-  // SQL structured connection fields
-  const [dbType, setDbType] = useState("postgresql");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("");
-  const [database, setDatabase] = useState("");
-  const [username, setUsername] = useState("");
+  const ec = existing?.config || {};
+  const [name, setName] = useState(existing?.name ?? "");
+  const [type, setType] = useState(existing?.source_type ?? available[0]?.key ?? "sql");
+  const [pollMs, setPollMs] = useState(existing?.poll_interval_ms ?? 5000);
+  const [description, setDescription] = useState(existing?.description ?? "");
+  // SQL structured connection fields (pre-filled in edit mode; password blank = keep)
+  const [dbType, setDbType] = useState(ec.db_type ?? "postgresql");
+  const [host, setHost] = useState(ec.host ?? "");
+  const [port, setPort] = useState(ec.port ? String(ec.port) : "");
+  const [database, setDatabase] = useState(ec.database ?? "");
+  const [username, setUsername] = useState(ec.username ?? "");
   const [password, setPassword] = useState("");
   // SQL query fields
-  const [query, setQuery] = useState("SELECT ts, value FROM readings WHERE ts > :since ORDER BY ts");
-  const [tsCol, setTsCol] = useState("ts");
-  const [valueCols, setValueCols] = useState("value");
-  const [keyCol, setKeyCol] = useState("");
+  const [query, setQuery] = useState(ec.query ?? "SELECT ts, value FROM readings WHERE ts > :since ORDER BY ts");
+  const [tsCol, setTsCol] = useState(ec.timestamp_column ?? "ts");
+  const [valueCols, setValueCols] = useState(
+    Array.isArray(ec.value_columns) ? ec.value_columns.join(",") : "value");
+  const [keyCol, setKeyCol] = useState(ec.key_column ?? "");
 
+  const isEdit = !!existing;
   const isSqlite = dbType === "sqlite";
   const defaultPort: Record<string, string> = { postgresql: "5432", mysql: "3306", sqlserver: "1433", sqlite: "" };
 
@@ -196,12 +215,15 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
       config = {
         db_type: dbType,
         host: host.trim(), port: port.trim() ? Number(port) : null,
-        database: database.trim(), username: username.trim(), password,
+        database: database.trim(), username: username.trim(),
         query: query.trim(), timestamp_column: tsCol.trim() || null,
         value_columns: valueCols.split(",").map((s) => s.trim()).filter(Boolean),
         key_column: keyCol.trim() || null,
         incremental_column: tsCol.trim() || null,
       };
+      // only send password if the user typed one (blank = keep existing)
+      if (password) config.password = password;
+      else if (isEdit && ec.password) config.password = ec.password;
     }
     onSubmit({ name: name.trim(), source_type: type, mode: "poll",
       config, poll_interval_ms: pollMs, description: description.trim() || null });
@@ -211,7 +233,9 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
     <div style={overlay} onClick={onCancel}>
       <div style={modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>Add Data Source</h2>
+          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>
+            {isEdit ? "Edit Data Source" : "Add Data Source"}
+          </h2>
           <button style={iconBtn} onClick={onCancel}><X size={16} /></button>
         </div>
 
@@ -219,7 +243,7 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
           <div><label style={lbl}>Name *</label>
             <input style={inp} value={name} autoFocus onChange={(e) => setName(e.target.value)} placeholder="e.g. Plant Historian" /></div>
           <div><label style={lbl}>Type</label>
-            <select style={inp} value={type} onChange={(e) => setType(e.target.value)}>
+            <select style={inp} value={type} onChange={(e) => setType(e.target.value)} disabled={isEdit}>
               {available.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
             </select></div>
         </div>
@@ -263,7 +287,7 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
                   <div><label style={lbl}>Username *</label>
                     <input style={inp} value={username} onChange={(e) => setUsername(e.target.value)}
                       placeholder={dbType === "sqlserver" ? "sa" : "user"} /></div>
-                  <div><label style={lbl}>Password</label>
+                  <div><label style={lbl}>Password{isEdit ? " (blank = keep)" : ""}</label>
                     <input style={inp} type="password" value={password}
                       onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" /></div>
                 </div>
@@ -309,7 +333,7 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
           <button style={btn("#0ea5e9")} disabled={busy || !name.trim()} onClick={submit}>
-            <Check size={16} /> Add Source
+            <Check size={16} /> {isEdit ? "Save Changes" : "Add Source"}
           </button>
         </div>
       </div>
