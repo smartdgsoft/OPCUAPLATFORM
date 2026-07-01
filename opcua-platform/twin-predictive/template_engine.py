@@ -174,7 +174,12 @@ async def run_instance(pool: asyncpg.Pool, inst_row: asyncpg.Record) -> int:
     for o in outputs:
         rec_id = None
         if o.actionable and o.output_type == "prescribe":
+            logger.info("rec_attempt", instance=instance["name"],
+                        actionable=o.actionable, out_type=o.output_type,
+                        target_tag=o.target_tag_id, target_server=o.target_server_id,
+                        twin_id=twin_id)
             rec_id = await _create_recommendation(pool, instance, twin_id, o)
+            logger.info("rec_result", instance=instance["name"], rec_id=rec_id)
 
         await pool.execute(
             """INSERT INTO problem_outputs
