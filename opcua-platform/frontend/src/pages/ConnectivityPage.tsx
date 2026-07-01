@@ -173,19 +173,31 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
   const [type, setType] = useState(available[0]?.key ?? "sql");
   const [pollMs, setPollMs] = useState(5000);
   const [description, setDescription] = useState("");
-  // SQL config fields
-  const [dsn, setDsn] = useState("postgresql://user:pass@host:5432/db");
+  // SQL structured connection fields
+  const [dbType, setDbType] = useState("postgresql");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("");
+  const [database, setDatabase] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  // SQL query fields
   const [query, setQuery] = useState("SELECT ts, value FROM readings WHERE ts > :since ORDER BY ts");
   const [tsCol, setTsCol] = useState("ts");
   const [valueCols, setValueCols] = useState("value");
   const [keyCol, setKeyCol] = useState("");
+
+  const isSqlite = dbType === "sqlite";
+  const defaultPort: Record<string, string> = { postgresql: "5432", mysql: "3306", sqlserver: "1433", sqlite: "" };
 
   const submit = () => {
     if (!name.trim()) return;
     let config: any = {};
     if (type === "sql") {
       config = {
-        dsn: dsn.trim(), query: query.trim(), timestamp_column: tsCol.trim() || null,
+        db_type: dbType,
+        host: host.trim(), port: port.trim() ? Number(port) : null,
+        database: database.trim(), username: username.trim(), password,
+        query: query.trim(), timestamp_column: tsCol.trim() || null,
         value_columns: valueCols.split(",").map((s) => s.trim()).filter(Boolean),
         key_column: keyCol.trim() || null,
         incremental_column: tsCol.trim() || null,
@@ -214,10 +226,56 @@ function AddSourceModal({ types, error, busy, onCancel, onSubmit }: {
 
         {type === "sql" && (
           <>
-            <label style={lbl}>Connection string (DSN) *</label>
-            <input style={{ ...inp, marginBottom: 12, fontFamily: "monospace", fontSize: 12 }} value={dsn}
-              onChange={(e) => setDsn(e.target.value)}
-              placeholder="postgresql://user:pass@host:5432/db" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Database type *</label>
+                <select style={inp} value={dbType}
+                  onChange={(e) => { setDbType(e.target.value); setPort(""); }}>
+                  <option value="postgresql">PostgreSQL</option>
+                  <option value="mysql">MySQL / MariaDB</option>
+                  <option value="sqlserver">Microsoft SQL Server</option>
+                  <option value="sqlite">SQLite (file)</option>
+                </select></div>
+              {!isSqlite && (
+                <div><label style={lbl}>Port</label>
+                  <input style={inp} value={port} onChange={(e) => setPort(e.target.value)}
+                    placeholder={defaultPort[dbType]} /></div>
+              )}
+            </div>
+
+            {isSqlite ? (
+              <>
+                <label style={lbl}>Database file path *</label>
+                <input style={{ ...inp, marginBottom: 12, fontFamily: "monospace", fontSize: 12 }}
+                  value={database} onChange={(e) => setDatabase(e.target.value)}
+                  placeholder="/data/plant.db" />
+              </>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div><label style={lbl}>Host / Server *</label>
+                    <input style={inp} value={host} onChange={(e) => setHost(e.target.value)}
+                      placeholder="db.plant.local or 10.0.0.5" /></div>
+                  <div><label style={lbl}>Database *</label>
+                    <input style={inp} value={database} onChange={(e) => setDatabase(e.target.value)}
+                      placeholder="historian" /></div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div><label style={lbl}>Username *</label>
+                    <input style={inp} value={username} onChange={(e) => setUsername(e.target.value)}
+                      placeholder={dbType === "sqlserver" ? "sa" : "user"} /></div>
+                  <div><label style={lbl}>Password</label>
+                    <input style={inp} type="password" value={password}
+                      onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" /></div>
+                </div>
+                {dbType === "sqlserver" && (
+                  <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 6,
+                    padding: "8px 10px", marginBottom: 12 }}>
+                    SQL Server uses SQL/SA authentication. The connector reaches the server over the
+                    network — ensure the SQL login has read access to the query's tables.
+                  </div>
+                )}
+              </>
+            )}
 
             <label style={lbl}>Query *  (use :since for incremental polling)</label>
             <textarea style={{ ...inp, marginBottom: 12, fontFamily: "monospace", fontSize: 12, minHeight: 64 }}

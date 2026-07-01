@@ -54,9 +54,10 @@ class SqlConnector(BaseConnector):
 
     # ── lifecycle ──────────────────────────────────────────────────────────
     async def connect(self) -> None:
-        dsn = self.config.get("dsn")
+        dsn = self._build_dsn()
         if not dsn:
-            raise ValueError("SQL source requires a 'dsn' in config")
+            raise ValueError("SQL source requires either a 'dsn' or structured "
+                             "connection fields (db_type, host, database)")
         # create_engine is sync; pool_pre_ping keeps long-lived connections sane.
         self._engine = await asyncio.to_thread(
             create_engine, dsn, pool_pre_ping=True, pool_size=2, max_overflow=2)
@@ -65,6 +66,45 @@ class SqlConnector(BaseConnector):
         lookback = int(self.config.get("since_lookback_s", 3600))
         self._since = datetime.now(tz=timezone.utc) - timedelta(seconds=lookback)
         logger.info("sql_connected", source_id=self.source_id)
+
+    def _build_dsn(self) -> str:
+        """Build a SQLAlchemy URL. A raw 'dsn' wins if provided (back-compat);
+        otherwise assemble from structured fields per database type."""
+        raw = self.config.get("dsn")
+        if raw:
+            return raw
+
+        db_type = (self.config.get("db_type") or "").lower()
+        host = self.config.get("host", "")
+        port = self.config.get("port")
+        database = self.config.get("database", "")
+        user = self.config.get("username", "")
+        password = self.config.get("password", "")
+
+        # URL-encode credentials so special chars don't break the URL
+        from urllib.parse import quote_plus
+        u = quote_plus(str(user)) if user else ""
+        p = quote_plus(str(password)) if password else ""
+        auth = f"{u}:{p}@" if user else ""
+
+        if db_type == "postgresql":
+            port = port or 5432
+            return f"postgresql://{auth}{host}:{port}/{database}"
+        if db_type == "mysql":
+            port = port or 3306
+            return f"mysql+pymysql://{auth}{host}:{port}/{database}"
+        if db_type == "sqlserver":
+            port = port or 1433
+            # SA / SQL authentication via pyodbc + MS ODBC Driver 18
+            driver = "ODBC+Driver+18+for+SQL+Server"
+            # TrustServerCertificate avoids cert issues on internal plant networks
+            return (f"mssql+pyodbc://{auth}{host}:{port}/{database}"
+                    f"?driver={driver}&TrustServerCertificate=yes&Encrypt=optional")
+        if db_type == "sqlite":
+            # database holds a file path
+            return f"sqlite:///{database}"
+        # unknown type: nothing to build
+        return ""
 
     def _test(self) -> None:
         assert self._engine is not None
