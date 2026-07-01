@@ -70,6 +70,12 @@ async def list_instances(
         d = dict(r)
         if d.get("last_eval_at"):
             d["last_eval_at"] = d["last_eval_at"].isoformat()
+        # asyncpg returns JSONB as a string; parse it so the client gets an object
+        if isinstance(d.get("config"), str):
+            try:
+                d["config"] = json.loads(d["config"])
+            except Exception:
+                d["config"] = {}
         oc = await pool.fetchval(
             "SELECT COUNT(*) FROM problem_outputs WHERE instance_id=$1::uuid", d["id"])
         d["output_count"] = oc

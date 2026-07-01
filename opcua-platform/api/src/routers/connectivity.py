@@ -67,6 +67,12 @@ async def list_sources(
         d = dict(r)
         if d.get("last_seen"):
             d["last_seen"] = d["last_seen"].isoformat()
+        # asyncpg returns JSONB as a string; parse so the client edit form pre-fills
+        if isinstance(d.get("config"), str):
+            try:
+                d["config"] = json.loads(d["config"])
+            except Exception:
+                d["config"] = {}
         sc = await pool.fetchval("SELECT COUNT(*) FROM streams WHERE source_id=$1::uuid", d["id"])
         d["stream_count"] = sc
         out.append(d)
