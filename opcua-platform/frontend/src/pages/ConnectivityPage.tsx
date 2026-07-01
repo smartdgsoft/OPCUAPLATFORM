@@ -200,7 +200,7 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
   // SQL query fields
   const [query, setQuery] = useState(ec.query ?? "SELECT ts, value FROM readings WHERE ts > :since ORDER BY ts");
   const [tsCol, setTsCol] = useState(ec.timestamp_column ?? "ts");
-  const [valueCols, setValueCols] = useState(
+  const [valueCols, setValueCols] = useState<string>(
     Array.isArray(ec.value_columns) ? ec.value_columns.join(",") : "value");
   const [keyCol, setKeyCol] = useState(ec.key_column ?? "");
 
@@ -217,7 +217,7 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
         host: host.trim(), port: port.trim() ? Number(port) : null,
         database: database.trim(), username: username.trim(),
         query: query.trim(), timestamp_column: tsCol.trim() || null,
-        value_columns: valueCols.split(",").map((s) => s.trim()).filter(Boolean),
+        value_columns: valueCols.split(",").map((s: string) => s.trim()).filter(Boolean),
         key_column: keyCol.trim() || null,
         incremental_column: tsCol.trim() || null,
       };
