@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import {
   fetchConnectorTypes, fetchSources, createSource, updateSource, deleteSource,
-  fetchSourceStreams,
+  fetchSourceStreams, testConnectorConnection, fetchConnectorTestResult,
   type ConnectorType, type Source, type SourceInput, type SourceStream,
 } from "../services/api";
 import { useFeatures } from "../hooks/useFeatures";
@@ -203,13 +203,22 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
   const [valueCols, setValueCols] = useState<string>(
     Array.isArray(ec.value_columns) ? ec.value_columns.join(",") : "value");
   const [keyCol, setKeyCol] = useState(ec.key_column ?? "");
+  // MQTT fields
+  const [mqttTopics, setMqttTopics] = useState(
+    Array.isArray(ec.topics) ? ec.topics.join(", ") : "sensors/#");
+  const [mqttPayload, setMqttPayload] = useState(ec.payload ?? "raw");
+  const [mqttJsonPath, setMqttJsonPath] = useState(ec.json_value_path ?? "value");
+  // Modbus fields (registers as JSON text for flexibility)
+  const [modbusUnit, setModbusUnit] = useState(ec.unit_id != null ? String(ec.unit_id) : "1");
+  const [modbusRegisters, setModbusRegisters] = useState(
+    Array.isArray(ec.registers) ? JSON.stringify(ec.registers, null, 2)
+      : '[\n  { "name": "weight:nozzle=3", "address": 100, "type": "holding", "data_type": "float32", "scale": 1.0 }\n]');
 
   const isEdit = !!existing;
   const isSqlite = dbType === "sqlite";
   const defaultPort: Record<string, string> = { postgresql: "5432", mysql: "3306", sqlserver: "1433", sqlite: "" };
 
-  const submit = () => {
-    if (!name.trim()) return;
+  const buildConfig = (): any => {
     let config: any = {};
     if (type === "sql") {
       config = {
@@ -221,10 +230,55 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
         key_column: keyCol.trim() || null,
         incremental_column: tsCol.trim() || null,
       };
-      // only send password if the user typed one (blank = keep existing)
       if (password) config.password = password;
       else if (isEdit && ec.password) config.password = ec.password;
+    } else if (type === "mqtt") {
+      config = {
+        host: host.trim(), port: port.trim() ? Number(port) : 1883,
+        username: username.trim() || null,
+        topics: mqttTopics.split(",").map((s) => s.trim()).filter(Boolean),
+        payload: mqttPayload,
+        json_value_path: mqttPayload === "json" ? mqttJsonPath.trim() : undefined,
+        tls: false,
+      };
+      if (password) config.password = password;
+      else if (isEdit && ec.password) config.password = ec.password;
+    } else if (type === "modbus_tcp") {
+      let regs: any = [];
+      try { regs = JSON.parse(modbusRegisters); } catch { regs = []; }
+      config = {
+        host: host.trim(), port: port.trim() ? Number(port) : 502,
+        unit_id: Number(modbusUnit) || 1,
+        registers: regs,
+      };
     }
+    return config;
+  };
+
+  const [testState, setTestState] = useState<{ status: string; ok?: boolean; detail?: string }>({ status: "idle" });
+  const runTest = async () => {
+    setTestState({ status: "testing" });
+    try {
+      const { test_id } = await testConnectorConnection(type, buildConfig());
+      // poll up to ~18s
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const res = await fetchConnectorTestResult(test_id);
+        if (!res.pending) {
+          setTestState({ status: "done", ok: res.ok,
+            detail: res.detail + (res.ok && res.streams ? ` · ${res.streams} stream(s) seen` : "") });
+          return;
+        }
+      }
+      setTestState({ status: "done", ok: false, detail: "test timed out waiting for result" });
+    } catch (e: any) {
+      setTestState({ status: "done", ok: false, detail: e?.response?.data?.detail ?? "test failed" });
+    }
+  };
+
+  const submit = () => {
+    if (!name.trim()) return;
+    const config = buildConfig();
     onSubmit({ name: name.trim(), source_type: type, mode: "poll",
       config, poll_interval_ms: pollMs, description: description.trim() || null });
   };
@@ -322,6 +376,63 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
           </>
         )}
 
+        {type === "mqtt" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Broker host *</label>
+                <input style={inp} value={host} onChange={(e) => setHost(e.target.value)} placeholder="broker.plant.local" /></div>
+              <div><label style={lbl}>Port</label>
+                <input style={inp} value={port} onChange={(e) => setPort(e.target.value)} placeholder="1883" /></div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Username</label>
+                <input style={inp} value={username} onChange={(e) => setUsername(e.target.value)} placeholder="(optional)" /></div>
+              <div><label style={lbl}>Password{isEdit ? " (blank = keep)" : ""}</label>
+                <input style={inp} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" /></div>
+            </div>
+            <label style={lbl}>Topics (comma-separated, MQTT wildcards + and # allowed) *</label>
+            <input style={{ ...inp, marginBottom: 12, fontFamily: "monospace", fontSize: 12 }}
+              value={mqttTopics} onChange={(e) => setMqttTopics(e.target.value)}
+              placeholder="line1/nozzle/+/weight, sensors/#" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Payload format</label>
+                <select style={inp} value={mqttPayload} onChange={(e) => setMqttPayload(e.target.value)}>
+                  <option value="raw">Raw (payload is the value)</option>
+                  <option value="json">JSON (extract a field)</option>
+                </select></div>
+              {mqttPayload === "json" && (
+                <div><label style={lbl}>JSON value path</label>
+                  <input style={inp} value={mqttJsonPath} onChange={(e) => setMqttJsonPath(e.target.value)} placeholder="value" /></div>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 6, padding: "8px 10px", marginBottom: 12 }}>
+              Each <strong>topic becomes a stream</strong>, so <code>line1/nozzle/3/weight</code>
+              is naturally per-unit — the same attribution the learning engine uses.
+            </div>
+          </>
+        )}
+
+        {type === "modbus_tcp" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Device host *</label>
+                <input style={inp} value={host} onChange={(e) => setHost(e.target.value)} placeholder="10.0.0.50" /></div>
+              <div><label style={lbl}>Port</label>
+                <input style={inp} value={port} onChange={(e) => setPort(e.target.value)} placeholder="502" /></div>
+              <div><label style={lbl}>Unit ID</label>
+                <input style={inp} value={modbusUnit} onChange={(e) => setModbusUnit(e.target.value)} placeholder="1" /></div>
+            </div>
+            <label style={lbl}>Registers (JSON) *</label>
+            <textarea style={{ ...inp, marginBottom: 8, fontFamily: "monospace", fontSize: 11, minHeight: 130 }}
+              value={modbusRegisters} onChange={(e) => setModbusRegisters(e.target.value)} />
+            <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 6, padding: "8px 10px", marginBottom: 12 }}>
+              Each register's <strong>name is the stream key</strong> — name them
+              <code> weight:nozzle=3</code> for per-unit attribution. Types: holding/input/coil/discrete.
+              Data types: int16, uint16, int32, uint32, float32, bool. <code>scale</code>/<code>offset</code> convert to engineering units.
+            </div>
+          </>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div><label style={lbl}>Poll interval (ms)</label>
             <input style={inp} type="number" value={pollMs} onChange={(e) => setPollMs(+e.target.value)} /></div>
@@ -330,7 +441,19 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
         </div>
 
         {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+        {testState.status !== "idle" && (
+          <div style={{ fontSize: 13, marginBottom: 12, padding: "8px 12px", borderRadius: 6,
+            background: testState.status === "testing" ? "#f0f9ff" : testState.ok ? "#f0fdf4" : "#fef2f2",
+            color: testState.status === "testing" ? "#0369a1" : testState.ok ? "#15803d" : "#dc2626" }}>
+            {testState.status === "testing" ? "Testing connection…"
+              : `${testState.ok ? "✓ Connected" : "✗ Failed"} — ${testState.detail}`}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
+          <button style={{ ...btn("#f1f5f9", "#334155"), marginRight: "auto" }}
+            disabled={testState.status === "testing" || !host.trim()} onClick={runTest}>
+            {testState.status === "testing" ? "Testing…" : "Test connection"}
+          </button>
           <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
           <button style={btn("#0ea5e9")} disabled={busy || !name.trim()} onClick={submit}>
             <Check size={16} /> {isEdit ? "Save Changes" : "Add Source"}

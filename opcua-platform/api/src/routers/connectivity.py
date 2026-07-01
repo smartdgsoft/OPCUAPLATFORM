@@ -7,6 +7,7 @@ runs them; this API configures them. Mutations are RBAC-gated.
 """
 from __future__ import annotations
 import json
+import uuid
 from typing import Any, Dict, List, Optional
 
 import asyncpg
@@ -14,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.auth.jwt import UserOut, require_roles, get_current_user
-from src.db.database import get_pool
+from src.db.database import get_pool, get_redis
 
 router = APIRouter()
 
@@ -23,8 +24,8 @@ router = APIRouter()
 CONNECTOR_CATALOG = [
     {"key": "opcua",       "name": "OPC UA",            "mode": "subscribe", "available": True,  "note": "Built-in (connector #1)"},
     {"key": "sql",         "name": "SQL Database",      "mode": "poll",      "available": True,  "note": "Postgres/MySQL/SQL Server/SQLite via SQLAlchemy"},
-    {"key": "mqtt",        "name": "MQTT",              "mode": "subscribe", "available": False, "note": "planned"},
-    {"key": "modbus_tcp",  "name": "Modbus TCP",        "mode": "poll",      "available": False, "note": "planned"},
+    {"key": "mqtt",        "name": "MQTT",              "mode": "subscribe", "available": True,  "note": "Broker subscribe; topic = stream key (paho-mqtt)"},
+    {"key": "modbus_tcp",  "name": "Modbus TCP",        "mode": "poll",      "available": True,  "note": "Register polling; named registers = streams (pymodbus)"},
     {"key": "rest",        "name": "REST",              "mode": "poll",      "available": False, "note": "planned"},
 ]
 
@@ -145,3 +146,42 @@ async def list_streams(
                   data_type, tag_id::text, is_active, asset_id::text
            FROM streams WHERE source_id=$1::uuid ORDER BY stream_key""", source_id)
     return [dict(r) for r in rows]
+
+
+# ── connection test (validate a config before saving) ───────────────────────
+class TestRequest(BaseModel):
+    source_type: str
+    config: Dict[str, Any] = {}
+
+
+@router.post("/test")
+async def test_connection(
+    body: TestRequest,
+    redis=Depends(get_redis),
+    _: UserOut = Depends(require_roles("ADMIN", "ENGINEER")),
+):
+    """Submit a connection test. The connector-hub picks it up, tries to connect
+    with a fresh connector, and writes the result. Returns a test_id to poll."""
+    valid = {c["key"] for c in CONNECTOR_CATALOG if c["available"]}
+    if body.source_type not in valid:
+        raise HTTPException(400, f"source_type not available. Available: {sorted(valid)}")
+    test_id = str(uuid.uuid4())
+    await redis.rpush("connector:test:requests", json.dumps({
+        "test_id": test_id, "source_type": body.source_type, "config": body.config}))
+    return {"test_id": test_id, "status": "submitted"}
+
+
+@router.get("/test/{test_id}")
+async def test_result(
+    test_id: str,
+    redis=Depends(get_redis),
+    _: UserOut = Depends(get_current_user),
+):
+    """Poll for a connection-test result. Returns {pending:true} until ready."""
+    raw = await redis.get(f"connector:test:result:{test_id}")
+    if not raw:
+        return {"pending": True}
+    try:
+        return {"pending": False, **json.loads(raw)}
+    except Exception:
+        return {"pending": False, "ok": False, "detail": "malformed result"}

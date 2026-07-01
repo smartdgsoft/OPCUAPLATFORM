@@ -487,3 +487,9 @@ export const applyCalibration = (id: string): Promise<any> =>
   api.post(`/calibration/calibrations/${id}/apply`).then((r) => r.data);
 export const deleteCalibration = (id: string): Promise<void> =>
   api.delete(`/calibration/calibrations/${id}`).then(() => undefined);
+
+// ── Connector connection test ───────────────────────────────────────────────
+export const testConnectorConnection = (source_type: string, config: any): Promise<{ test_id: string }> =>
+  api.post("/connectivity/test", { source_type, config }).then((r) => r.data);
+export const fetchConnectorTestResult = (testId: string): Promise<{ pending: boolean; ok?: boolean; detail?: string; streams?: number }> =>
+  api.get(`/connectivity/test/${testId}`).then((r) => r.data);

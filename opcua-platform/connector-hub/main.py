@@ -156,7 +156,45 @@ async def run_source(pool: asyncpg.Pool, redis: aioredis.Redis, runner: SourceRu
             logger.error("source_poll_failed", source=runner.name, error=str(exc))
 
 
-async def main() -> None:
+async def handle_test_requests(pool: asyncpg.Pool, redis) -> None:
+    """Process pending connection-test requests. The API pushes a test request
+    onto a Redis list; we try connect()+health() with a fresh connector and write
+    the result to a Redis key the API/UI polls. This validates a config WITHOUT
+    waiting for the poll cycle or enabling the source."""
+    while True:
+        raw = await redis.lpop("connector:test:requests")
+        if not raw:
+            break
+        try:
+            req = json.loads(raw)
+        except Exception:
+            continue
+        test_id = req.get("test_id")
+        source_type = req.get("source_type")
+        config = req.get("config", {})
+        result = {"ok": False, "detail": "", "streams": 0}
+        try:
+            from connectors import get_connector
+            conn = get_connector(source_type, "test", config)
+            await asyncio.wait_for(conn.connect(), timeout=15)
+            health = await conn.health()
+            result = {"ok": bool(health.connected),
+                      "detail": health.detail or ("connected" if health.connected else "not connected"),
+                      "streams": health.streams_active}
+            try:
+                await conn.disconnect()
+            except Exception:
+                pass
+        except asyncio.TimeoutError:
+            result = {"ok": False, "detail": "connection timed out (15s)", "streams": 0}
+        except Exception as exc:
+            result = {"ok": False, "detail": str(exc), "streams": 0}
+        if test_id:
+            await redis.set(f"connector:test:result:{test_id}", json.dumps(result), ex=120)
+        logger.info("connector_test_done", source_type=source_type, ok=result["ok"])
+
+
+
     structlog.configure(processors=[structlog.processors.JSONRenderer()])
     start_http_server(METRICS_PORT)
     logger.info("connector_hub_starting", metrics_port=METRICS_PORT)
@@ -191,6 +229,12 @@ async def main() -> None:
                     del runners[sid]
 
             ACTIVE_SOURCES.set(sum(1 for r in runners.values() if r.connected))
+
+            # process any pending connection-test requests
+            try:
+                await handle_test_requests(pool, redis)
+            except Exception as exc:
+                logger.error("test_handler_error", error=str(exc))
         except Exception as exc:
             logger.error("hub_loop_error", error=str(exc))
         await asyncio.sleep(POLL_TICK_S)
