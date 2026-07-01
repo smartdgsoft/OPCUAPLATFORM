@@ -236,7 +236,7 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
       config = {
         host: host.trim(), port: port.trim() ? Number(port) : 1883,
         username: username.trim() || null,
-        topics: mqttTopics.split(",").map((s) => s.trim()).filter(Boolean),
+        topics: mqttTopics.split(",").map((s: string) => s.trim()).filter(Boolean),
         payload: mqttPayload,
         json_value_path: mqttPayload === "json" ? mqttJsonPath.trim() : undefined,
         tls: false,
