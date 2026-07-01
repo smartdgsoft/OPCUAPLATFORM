@@ -419,3 +419,37 @@ export const deleteSource = (id: string): Promise<void> =>
   api.delete(`/connectivity/sources/${id}`).then(() => undefined);
 export const fetchSourceStreams = (id: string): Promise<SourceStream[]> =>
   api.get<SourceStream[]>(`/connectivity/sources/${id}/streams`).then((r) => r.data);
+
+// ── Problem Templates ───────────────────────────────────────────────────────
+export interface ProblemTemplateType {
+  key: string; name: string; objective_types: string[]; available: boolean; description: string;
+}
+export interface ProblemInstance {
+  id: string; template_key: string; name: string; asset_id?: string | null; asset_name?: string | null;
+  enabled: boolean; config: any; maturity: string; confidence: number;
+  eval_interval_s: number; last_eval_at?: string | null; last_status?: string | null;
+  last_error?: string | null; output_count: number;
+}
+export interface ProblemOutput {
+  output_type: string; severity: string; unit_key?: string | null; title: string; detail: string;
+  value?: number | null; confidence: number; maturity: string; payload: any;
+  recommendation_id?: string | null; created_at: string;
+}
+export interface ProblemInstanceInput {
+  template_key: string; name: string; asset_id?: string | null; config: any; eval_interval_s?: number;
+}
+
+export const fetchProblemTemplates = (): Promise<ProblemTemplateType[]> =>
+  api.get<ProblemTemplateType[]>("/templates/templates").then((r) => r.data);
+export const fetchProblemInstances = (): Promise<ProblemInstance[]> =>
+  api.get<ProblemInstance[]>("/templates/instances").then((r) => r.data);
+export const createProblemInstance = (b: ProblemInstanceInput): Promise<{ id: string }> =>
+  api.post("/templates/instances", b).then((r) => r.data);
+export const updateProblemInstance = (id: string, b: Partial<ProblemInstanceInput> & { enabled?: boolean }): Promise<{ id: string }> =>
+  api.put(`/templates/instances/${id}`, b).then((r) => r.data);
+export const deleteProblemInstance = (id: string): Promise<void> =>
+  api.delete(`/templates/instances/${id}`).then(() => undefined);
+export const fetchProblemOutputs = (id: string): Promise<ProblemOutput[]> =>
+  api.get<ProblemOutput[]>(`/templates/instances/${id}/outputs`).then((r) => r.data);
+export const fetchProblemModel = (id: string): Promise<any> =>
+  api.get(`/templates/instances/${id}/model`).then((r) => r.data);

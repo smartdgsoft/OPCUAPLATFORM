@@ -24,6 +24,7 @@ from prometheus_client import start_http_server, Counter, Gauge
 
 from core import score_model, train_model, activate_version, active_version
 from closed_loop import evaluate_rules
+from template_engine import eval_pass as template_eval_pass
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +36,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://:redis_pass@redis:6379/0")
 SCORE_INTERVAL_S = float(os.getenv("PRED_SCORE_INTERVAL_S", "30"))
 RETRAIN_CHECK_S = float(os.getenv("PRED_RETRAIN_CHECK_S", "3600"))
 ADVISORY_ENABLED = os.getenv("FEATURE_CLOSED_LOOP_ADVISORY", "false").lower() == "true"
+TEMPLATES_ENABLED = os.getenv("FEATURE_PROBLEM_TEMPLATES", "false").lower() == "true"
 METRICS_PORT = int(os.getenv("PRED_METRICS_PORT", "9093"))
 
 DETECTIONS = Counter("pred_detections_total", "Detections written", ["method", "severity"])
@@ -147,6 +149,11 @@ async def main() -> None:
                         RECOMMENDATIONS.inc(n)
                 except Exception as exc:
                     logger.error("advisory_error", error=str(exc))
+            if TEMPLATES_ENABLED:
+                try:
+                    await template_eval_pass(pool)
+                except Exception as exc:
+                    logger.error("template_engine_error", error=str(exc))
             now = asyncio.get_event_loop().time()
             if now - last_retrain_check >= RETRAIN_CHECK_S:
                 await maybe_retrain(pool)

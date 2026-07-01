@@ -9,6 +9,7 @@ export interface PlatformFeatures {
   twin_predictive: boolean;
   closed_loop_advisory: boolean;
   connector_hub: boolean;
+  problem_templates: boolean;
   kafka:        boolean;
   alarm_eval:   boolean;
   scheduler:    boolean;
@@ -18,6 +19,7 @@ export interface PlatformFeatures {
 const DEFAULT_FEATURES: PlatformFeatures = {
   write: false, methods: false, multi_server: false, digital_twin: false,
   twin_predictive: false, closed_loop_advisory: false, connector_hub: false,
+  problem_templates: false,
   kafka: false, alarm_eval: true, scheduler: false, edge_sync: false,
 };
 
