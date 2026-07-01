@@ -187,7 +187,8 @@ function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
           onSubmit={(b) => createMut.mutate(b)} />
       )}
       {editInst && (
-        <EditInstanceModal instance={editInst} error={err} busy={editMut.isPending}
+        <CreateInstanceModal templates={templates} tags={tags} assets={assets} servers={servers}
+          existing={editInst} error={err} busy={editMut.isPending}
           onCancel={() => { setEditInst(null); setErr(""); }}
           onSubmit={(b) => editMut.mutate({ id: editInst.id, b })} />
       )}
@@ -195,31 +196,46 @@ function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
   );
 }
 
-function CreateInstanceModal({ templates, tags, assets, servers, error, busy, onCancel, onSubmit }: {
+function CreateInstanceModal({ templates, tags, assets, servers, existing, error, busy, onCancel, onSubmit }: {
   templates: ProblemTemplateType[];
   tags: { id: string; display_name: string }[];
   assets: { id: string; name: string }[];
   servers: { id: string; name: string }[];
+  existing?: ProblemInstance;
   error: string; busy: boolean;
   onCancel: () => void; onSubmit: (b: ProblemInstanceInput) => void;
 }) {
   const avail = templates.filter((t) => t.available);
-  const [templateKey, setTemplateKey] = useState(avail[0]?.key ?? "condition_monitoring");
-  const [name, setName] = useState("");
-  const [assetId, setAssetId] = useState("");
+  const isEdit = !!existing;
+  const ec = existing?.config || {};
+  const eObj = ec.objective || {};
+  const eBounds = eObj.bounds || {};
+  const eAction = ec.action || {};
+  // condition-monitoring stores bounds as {tag:{max}}; prescribe as {min,max}
+  const firstBoundMax = eBounds.max != null ? eBounds.max
+    : (typeof eBounds === "object" && Object.values(eBounds)[0]
+        ? (Object.values(eBounds)[0] as any).max : undefined);
+
+  const [templateKey, setTemplateKey] = useState(existing?.template_key ?? avail[0]?.key ?? "condition_monitoring");
+  const [name, setName] = useState(existing?.name ?? "");
+  const [assetId, setAssetId] = useState(existing?.asset_id ?? "");
   // inputs: list of {tag_id, role}
-  const [inputs, setInputs] = useState<{ tag_id: string; role: string }[]>([{ tag_id: "", role: "measurement" }]);
+  const [inputs, setInputs] = useState<{ tag_id: string; role: string }[]>(
+    Array.isArray(ec.inputs) && ec.inputs.length ? ec.inputs : [{ tag_id: "", role: "measurement" }]);
   // objective
-  const [target, setTarget] = useState("");
-  const [boundMin, setBoundMin] = useState("");
-  const [boundMax, setBoundMax] = useState("");
-  const [trainWindow, setTrainWindow] = useState(168);
+  const [target, setTarget] = useState(eObj.target != null ? String(eObj.target) : "");
+  const [boundMin, setBoundMin] = useState(eBounds.min != null ? String(eBounds.min) : "");
+  const [boundMax, setBoundMax] = useState(firstBoundMax != null ? String(firstBoundMax) : "");
+  const [trainWindow, setTrainWindow] = useState(ec.model?.train_window_hours ?? 168);
+  const [minSamples, setMinSamples] = useState(ec.model?.min_samples != null ? String(ec.model.min_samples) : "");
+  const [evalInterval, setEvalInterval] = useState(existing?.eval_interval_s ?? 60);
   // action (prescribe)
-  const [targetTag, setTargetTag] = useState("");
-  const [targetServer, setTargetServer] = useState("");
-  const [settingMin, setSettingMin] = useState("");
-  const [settingMax, setSettingMax] = useState("");
-  const [maxStep, setMaxStep] = useState("");
+  const firstTargetTag = eAction.target_tag_map ? Object.values(eAction.target_tag_map)[0] as string : "";
+  const [targetTag, setTargetTag] = useState(firstTargetTag ?? "");
+  const [targetServer, setTargetServer] = useState(eAction.target_server_id ?? "");
+  const [settingMin, setSettingMin] = useState(eAction.setting_min != null ? String(eAction.setting_min) : "");
+  const [settingMax, setSettingMax] = useState(eAction.setting_max != null ? String(eAction.setting_max) : "");
+  const [maxStep, setMaxStep] = useState(eAction.max_step != null ? String(eAction.max_step) : "");
 
   const tmpl = templates.find((t) => t.key === templateKey);
   const isPrescribe = tmpl?.objective_types.includes("prescribe");
@@ -241,6 +257,7 @@ function CreateInstanceModal({ templates, tags, assets, servers, error, busy, on
         type: isPrescribe ? "prescribe" : "predict",
       },
     };
+    if (num(minSamples) !== null) config.model.min_samples = num(minSamples);
     if (isPrescribe) {
       config.objective.target = num(target);
       config.objective.bounds = { min: num(boundMin), max: num(boundMax) };
@@ -264,19 +281,22 @@ function CreateInstanceModal({ templates, tags, assets, servers, error, busy, on
     }
 
     onSubmit({ template_key: templateKey, name: name.trim(),
-      asset_id: assetId || null, config, eval_interval_s: 60 });
+      asset_id: assetId || null, config, eval_interval_s: evalInterval });
   };
 
   return (
     <div style={overlay} onClick={onCancel}>
       <div style={modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>New Problem Solver</h2>
+          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>
+            {isEdit ? "Edit Problem Solver" : "New Problem Solver"}
+          </h2>
           <button style={iconBtn} onClick={onCancel}><X size={16} /></button>
         </div>
 
         <label style={lbl}>Template *</label>
-        <select style={{ ...inp, marginBottom: 6 }} value={templateKey} onChange={(e) => setTemplateKey(e.target.value)}>
+        <select style={{ ...inp, marginBottom: 6 }} value={templateKey}
+          onChange={(e) => setTemplateKey(e.target.value)} disabled={isEdit}>
           {avail.map((t) => <option key={t.key} value={t.key}>{t.name}</option>)}
         </select>
         {tmpl && (
@@ -328,13 +348,22 @@ function CreateInstanceModal({ templates, tags, assets, servers, error, busy, on
               <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} /></div>
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div><label style={lbl}>Alarm limit (max)</label>
-              <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} placeholder="e.g. 4.5" /></div>
-            <div><label style={lbl}>Train window (hours)</label>
-              <input style={inp} type="number" value={trainWindow} onChange={(e) => setTrainWindow(+e.target.value)} /></div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={lbl}>Alarm limit (max)</label>
+            <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} placeholder="e.g. 4.5" />
           </div>
         )}
+
+        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", margin: "4px 0 8px" }}>Learning settings</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div><label style={lbl}>Train window (h)</label>
+            <input style={inp} type="number" value={trainWindow} onChange={(e) => setTrainWindow(+e.target.value)} /></div>
+          <div><label style={lbl}>Min samples</label>
+            <input style={inp} type="number" value={minSamples} onChange={(e) => setMinSamples(e.target.value)}
+              placeholder="default" /></div>
+          <div><label style={lbl}>Eval interval (s)</label>
+            <input style={inp} type="number" value={evalInterval} onChange={(e) => setEvalInterval(+e.target.value)} /></div>
+        </div>
 
         {isPrescribe && (
           <>
@@ -368,7 +397,7 @@ function CreateInstanceModal({ templates, tags, assets, servers, error, busy, on
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
           <button style={btn("#7c3aed")} disabled={busy || !name.trim()} onClick={submit}>
-            <Check size={16} /> Create
+            <Check size={16} /> {isEdit ? "Save Changes" : "Create"}
           </button>
         </div>
       </div>
@@ -438,106 +467,6 @@ function InstanceDetail({ instance, onBack }: { instance: ProblemInstance; onBac
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-function EditInstanceModal({ instance, error, busy, onCancel, onSubmit }: {
-  instance: ProblemInstance; error: string; busy: boolean;
-  onCancel: () => void; onSubmit: (b: any) => void;
-}) {
-  const cfg = instance.config || {};
-  const obj = cfg.objective || {};
-  const model = cfg.model || {};
-  const bounds = obj.bounds || {};
-  // prescribe layout when the objective says so OR the template is a setpoint one
-  const isPrescribe = obj.type === "prescribe"
-    || instance.template_key === "source_attributed_setpoint";
-
-  const [name, setName] = useState(instance.name);
-  const [target, setTarget] = useState(obj.target != null ? String(obj.target) : "");
-  const [boundMin, setBoundMin] = useState(bounds.min != null ? String(bounds.min) : "");
-  const [boundMax, setBoundMax] = useState(
-    // condition-monitoring stores bounds per tag {tag:{max}}; prescribe stores {min,max}
-    bounds.max != null ? String(bounds.max)
-      : (typeof bounds === "object" && Object.values(bounds)[0]
-          ? String((Object.values(bounds)[0] as any).max ?? "") : ""));
-  const [trainWindow, setTrainWindow] = useState(model.train_window_hours ?? 168);
-  const [minSamples, setMinSamples] = useState(model.min_samples != null ? String(model.min_samples) : "");
-  const [evalInterval, setEvalInterval] = useState(instance.eval_interval_s ?? 60);
-
-  const num = (v: string) => (v.trim() === "" ? null : Number(v));
-
-  const submit = () => {
-    if (!name.trim()) return;
-    // rebuild config preserving inputs/action, updating the tunables
-    const newCfg: any = { ...cfg };
-    newCfg.model = { ...model, train_window_hours: trainWindow };
-    if (num(minSamples) !== null) newCfg.model.min_samples = num(minSamples);
-    newCfg.objective = { ...obj };
-    if (isPrescribe) {
-      newCfg.objective.target = num(target);
-      newCfg.objective.bounds = { min: num(boundMin), max: num(boundMax) };
-    } else {
-      // condition monitoring: rebuild per-measurement {max} bounds
-      const b: any = {};
-      (cfg.inputs || []).filter((i: any) => i.role === "measurement").forEach((i: any) => {
-        if (num(boundMax) !== null) b[i.tag_id] = { max: num(boundMax) };
-      });
-      newCfg.objective.bounds = b;
-    }
-    onSubmit({ name: name.trim(), config: newCfg, eval_interval_s: evalInterval });
-  };
-
-  return (
-    <div style={overlay} onClick={onCancel}>
-      <div style={modal} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", alignItems: "center", marginBottom: 16 }}>
-          <h2 style={{ fontSize: 17, fontWeight: 600, margin: 0, flex: 1 }}>Edit Solver</h2>
-          <button style={iconBtn} onClick={onCancel}><X size={16} /></button>
-        </div>
-
-        <label style={lbl}>Name</label>
-        <input style={{ ...inp, marginBottom: 12 }} value={name} onChange={(e) => setName(e.target.value)} />
-
-        <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 6,
-          padding: "8px 10px", marginBottom: 12 }}>
-          Editing tunables for <strong>{instance.template_key}</strong>. Input signal bindings
-          are kept as-is; to change which signals are used, delete and recreate the solver.
-        </div>
-
-        {isPrescribe ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div><label style={lbl}>Target</label>
-              <input style={inp} type="number" value={target} onChange={(e) => setTarget(e.target.value)} /></div>
-            <div><label style={lbl}>Spec min</label>
-              <input style={inp} type="number" value={boundMin} onChange={(e) => setBoundMin(e.target.value)} /></div>
-            <div><label style={lbl}>Spec max</label>
-              <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} /></div>
-          </div>
-        ) : (
-          <div style={{ marginBottom: 12 }}><label style={lbl}>Alarm limit (max)</label>
-            <input style={inp} type="number" value={boundMax} onChange={(e) => setBoundMax(e.target.value)} /></div>
-        )}
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
-          <div><label style={lbl}>Train window (h)</label>
-            <input style={inp} type="number" value={trainWindow} onChange={(e) => setTrainWindow(+e.target.value)} /></div>
-          <div><label style={lbl}>Min samples</label>
-            <input style={inp} type="number" value={minSamples} onChange={(e) => setMinSamples(e.target.value)}
-              placeholder="default" /></div>
-          <div><label style={lbl}>Eval interval (s)</label>
-            <input style={inp} type="number" value={evalInterval} onChange={(e) => setEvalInterval(+e.target.value)} /></div>
-        </div>
-
-        {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
-        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
-          <button style={btn("#7c3aed")} disabled={busy || !name.trim()} onClick={submit}>
-            <Check size={16} /> Save Changes
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
