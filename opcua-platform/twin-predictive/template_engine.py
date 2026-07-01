@@ -174,6 +174,33 @@ async def run_instance(pool: asyncpg.Pool, inst_row: asyncpg.Record) -> int:
 
     written = 0
     for o in outputs:
+        # change-detection: skip writing if the last output for this
+        # (type, unit) is materially the same — avoids re-logging the identical
+        # finding every eval cycle. A new row is written only when the value
+        # moves meaningfully or the severity changes.
+        last = await pool.fetchrow(
+            """SELECT severity, value FROM problem_outputs
+               WHERE instance_id=$1::uuid AND output_type=$2
+                 AND unit_key IS NOT DISTINCT FROM $3
+               ORDER BY created_at DESC LIMIT 1""",
+            instance["id"], o.output_type, o.unit_key)
+        if last is not None:
+            prev_val = last["value"]
+            same_sev = last["severity"] == o.severity
+            # "material" change = value moved > 1% (or > 0.01 abs for tiny values)
+            if prev_val is not None and o.value is not None:
+                denom = max(abs(prev_val), 1e-6)
+                moved = abs(o.value - prev_val) / denom
+                unchanged = moved < 0.01
+            else:
+                unchanged = (prev_val == o.value)
+            if same_sev and unchanged:
+                # still refresh the pending recommendation for prescribe, but
+                # don't write a duplicate output row
+                if o.actionable and o.output_type == "prescribe":
+                    await _create_recommendation(pool, instance, twin_id, o)
+                continue
+
         rec_id = None
         if o.actionable and o.output_type == "prescribe":
             rec_id = await _create_recommendation(pool, instance, twin_id, o)
