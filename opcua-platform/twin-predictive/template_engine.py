@@ -78,13 +78,15 @@ async def _create_recommendation(pool: asyncpg.Pool, instance: Dict[str, Any],
     if not output.target_tag_id or not output.target_server_id:
         return None
     try:
-        # dedup: is there already a pending recommendation for this target?
+        # dedup: is there already a pending rec FROM THIS INSTANCE for this target?
+        # Scoped by instance_id so an unrelated rule targeting the same tag
+        # does not suppress this solver's recommendation.
         existing = await pool.fetchval(
             """SELECT id::text FROM cl_recommendations
                WHERE target_tag_id=$1::uuid AND status='pending'
-               AND ($2::uuid IS NULL OR twin_id IS NOT DISTINCT FROM $2::uuid)
+               AND instance_id IS NOT DISTINCT FROM $2::uuid
                LIMIT 1""",
-            output.target_tag_id, twin_id)
+            output.target_tag_id, instance.get("id"))
         if existing:
             return existing  # reuse; don't spam a new one each cycle
         clamps = output.clamps or {}
@@ -174,12 +176,7 @@ async def run_instance(pool: asyncpg.Pool, inst_row: asyncpg.Record) -> int:
     for o in outputs:
         rec_id = None
         if o.actionable and o.output_type == "prescribe":
-            logger.info("rec_attempt", instance=instance["name"],
-                        actionable=o.actionable, out_type=o.output_type,
-                        target_tag=o.target_tag_id, target_server=o.target_server_id,
-                        twin_id=twin_id)
             rec_id = await _create_recommendation(pool, instance, twin_id, o)
-            logger.info("rec_result", instance=instance["name"], rec_id=rec_id)
 
         await pool.execute(
             """INSERT INTO problem_outputs
