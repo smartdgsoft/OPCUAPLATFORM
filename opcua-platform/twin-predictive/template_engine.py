@@ -72,19 +72,30 @@ async def _twin_for_asset(pool: asyncpg.Pool, asset_id: Optional[str]) -> Option
 async def _create_recommendation(pool: asyncpg.Pool, instance: Dict[str, Any],
                                  twin_id: Optional[str], output) -> Optional[str]:
     """Turn an actionable prescribe output into a pending closed-loop rec.
-    Requires the closed_loop tables; if absent, skip gracefully."""
-    if not output.target_tag_id or not output.target_server_id or not twin_id:
+    Requires the closed_loop tables; if absent, skip gracefully.
+    Deduplicates: if a pending rec already exists for this twin+target tag,
+    do not create another (prevents one recommendation per eval cycle)."""
+    if not output.target_tag_id or not output.target_server_id:
         return None
     try:
+        # dedup: is there already a pending recommendation for this target?
+        existing = await pool.fetchval(
+            """SELECT id::text FROM cl_recommendations
+               WHERE target_tag_id=$1::uuid AND status='pending'
+               AND ($2::uuid IS NULL OR twin_id IS NOT DISTINCT FROM $2::uuid)
+               LIMIT 1""",
+            output.target_tag_id, twin_id)
+        if existing:
+            return existing  # reuse; don't spam a new one each cycle
         clamps = output.clamps or {}
         rid = await pool.fetchval(
             """INSERT INTO cl_recommendations
-               (rule_id, twin_id, source_tag_id, source_value, target_tag_id,
+               (rule_id, twin_id, instance_id, source_tag_id, source_value, target_tag_id,
                 target_server_id, current_value, recommended_value, clamped,
                 severity, title, detail, rationale, status, expires_at)
-               VALUES (NULL,$1::uuid,NULL,NULL,$2::uuid,$3::uuid,$4,$5,$6,$7,$8,$9,$10,'pending',$11)
+               VALUES (NULL,$1::uuid,$2::uuid,NULL,NULL,$3::uuid,$4::uuid,$5,$6,$7,$8,$9,$10,$11,'pending',$12)
                RETURNING id::text""",
-            twin_id, output.target_tag_id, output.target_server_id,
+            twin_id, instance.get("id"), output.target_tag_id, output.target_server_id,
             output.payload.get("current_setting"), output.value,
             bool(output.payload.get("clamped")),
             output.severity, output.title, output.detail,

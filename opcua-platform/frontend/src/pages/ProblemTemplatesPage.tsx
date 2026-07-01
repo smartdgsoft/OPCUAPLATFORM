@@ -98,7 +98,7 @@ function InstanceList({ onOpen }: { onOpen: (i: ProblemInstance) => void }) {
 
   const { data: instances = [] } = useQuery({ queryKey: ["problem-instances"], queryFn: fetchProblemInstances, refetchInterval: 5000 });
   const { data: templates = [] } = useQuery({ queryKey: ["problem-templates"], queryFn: fetchProblemTemplates });
-  const { data: tags = [] } = useQuery({ queryKey: ["tags"], queryFn: () => fetchTags() });
+  const { data: tags = [] } = useQuery({ queryKey: ["tags", "all"], queryFn: () => fetchTags(undefined, true) });
   const { data: assets = [] } = useQuery({ queryKey: ["assets"], queryFn: () => fetchAssets() });
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: fetchServers });
 
@@ -207,7 +207,13 @@ function CreateInstanceModal({ templates, tags, assets, servers, existing, error
 }) {
   const avail = templates.filter((t) => t.available);
   const isEdit = !!existing;
-  const ec = existing?.config || {};
+  // config may arrive as an object OR a JSON string (JSONB); handle both defensively
+  const ec: any = (() => {
+    const c = existing?.config;
+    if (!c) return {};
+    if (typeof c === "string") { try { return JSON.parse(c); } catch { return {}; } }
+    return c;
+  })();
   const eObj = ec.objective || {};
   const eBounds = eObj.bounds || {};
   const eAction = ec.action || {};
@@ -245,10 +251,29 @@ function CreateInstanceModal({ templates, tags, assets, servers, existing, error
     ? ["measurement", "setting", "context"]
     : ["measurement", "context"];
 
+  const [localErr, setLocalErr] = useState("");
+
   const submit = () => {
-    if (!name.trim()) return;
+    setLocalErr("");
+    if (!name.trim()) { setLocalErr("Name is required."); return; }
     const validInputs = inputs.filter((i) => i.tag_id);
-    if (validInputs.length === 0) return;
+    if (validInputs.length === 0) {
+      setLocalErr("At least one input signal is required. Select a signal before saving — "
+        + "saving with none would clear the solver's bindings.");
+      return;
+    }
+    if (isPrescribe && num(target) === null) {
+      setLocalErr("Target value is required for a prescription solver — "
+        + "saving without it would stop the solver from producing recommendations.");
+      return;
+    }
+    if (isPrescribe) {
+      const hasMeasurement = validInputs.some((i) => i.role === "measurement");
+      if (!hasMeasurement) {
+        setLocalErr("At least one input must have the 'measurement' role.");
+        return;
+      }
+    }
 
     const config: any = {
       inputs: validInputs,
@@ -257,18 +282,23 @@ function CreateInstanceModal({ templates, tags, assets, servers, existing, error
         type: isPrescribe ? "prescribe" : "predict",
       },
     };
+    // preserve any model fields we don't surface in the form (e.g. score_window_minutes)
+    if (ec.model && typeof ec.model === "object") {
+      config.model = { ...ec.model, train_window_hours: trainWindow };
+    }
     if (num(minSamples) !== null) config.model.min_samples = num(minSamples);
     if (isPrescribe) {
       config.objective.target = num(target);
       config.objective.bounds = { min: num(boundMin), max: num(boundMax) };
-      config.objective.deadband = 0.0;
+      config.objective.deadband = ec.objective?.deadband ?? 0.0;
       // map each measurement tag to the target tag (single-unit simple case)
       const measTags = validInputs.filter((i) => i.role === "measurement").map((i) => i.tag_id);
       const setTags = validInputs.filter((i) => i.role === "setting").map((i) => i.tag_id);
       const targetTagMap: any = {};
       measTags.forEach((mt, idx) => { targetTagMap[mt] = targetTag || setTags[idx] || null; });
       config.action = {
-        target_tag_map: targetTagMap, target_server_id: targetServer || null,
+        ...(ec.action || {}),
+        target_tag_map: targetTagMap, target_server_id: targetServer || (ec.action?.target_server_id ?? null),
         setting_min: num(settingMin), setting_max: num(settingMax), max_step: num(maxStep),
       };
     } else {
@@ -393,7 +423,7 @@ function CreateInstanceModal({ templates, tags, assets, servers, existing, error
           </>
         )}
 
-        {error && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{error}</div>}
+        {(error || localErr) && <div style={{ color: "#dc2626", fontSize: 13, marginBottom: 12 }}>{localErr || error}</div>}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>
           <button style={btn("#7c3aed")} disabled={busy || !name.trim()} onClick={submit}>
