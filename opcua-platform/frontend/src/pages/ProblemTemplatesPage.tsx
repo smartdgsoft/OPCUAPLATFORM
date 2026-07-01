@@ -450,7 +450,9 @@ function EditInstanceModal({ instance, error, busy, onCancel, onSubmit }: {
   const obj = cfg.objective || {};
   const model = cfg.model || {};
   const bounds = obj.bounds || {};
-  const isPrescribe = obj.type === "prescribe";
+  // prescribe layout when the objective says so OR the template is a setpoint one
+  const isPrescribe = obj.type === "prescribe"
+    || instance.template_key === "source_attributed_setpoint";
 
   const [name, setName] = useState(instance.name);
   const [target, setTarget] = useState(obj.target != null ? String(obj.target) : "");
