@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import asyncpg
-import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -24,21 +23,29 @@ router = APIRouter()
 
 
 def _gain(points: List[Dict[str, float]]) -> Dict[str, Any]:
-    """Least-squares gain of measured vs setting (mirrors engine.compute_gain)."""
-    if len(points) < 2:
-        return {"gain": None, "intercept": None, "r_squared": None, "n": len(points),
+    """Least-squares gain of measured vs setting, in plain Python (no numpy —
+    the API service is lean; the twin-predictive service has the heavier math).
+    Returns {gain, intercept, r_squared, n, error}."""
+    n = len(points)
+    if n < 2:
+        return {"gain": None, "intercept": None, "r_squared": None, "n": n,
                 "error": "need at least 2 points"}
-    x = np.array([p["setting_value"] for p in points], dtype=float)
-    y = np.array([p["measured_value"] for p in points], dtype=float)
-    if float(np.ptp(x)) < 1e-9:
-        return {"gain": None, "intercept": None, "r_squared": None, "n": len(x),
+    xs = [float(p["setting_value"]) for p in points]
+    ys = [float(p["measured_value"]) for p in points]
+    if max(xs) - min(xs) < 1e-9:
+        return {"gain": None, "intercept": None, "r_squared": None, "n": n,
                 "error": "settings did not vary — cannot compute gain"}
-    slope, intercept = np.polyfit(x, y, 1)
-    y_pred = slope * x + intercept
-    ss_res = float(np.sum((y - y_pred) ** 2)); ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    mx = sum(xs) / n
+    my = sum(ys) / n
+    sxx = sum((x - mx) ** 2 for x in xs)
+    sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+    slope = sxy / sxx
+    intercept = my - slope * mx
+    ss_tot = sum((y - my) ** 2 for y in ys)
+    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 1e-12 else 1.0
-    return {"gain": float(slope), "intercept": float(intercept), "r_squared": float(r2),
-            "n": int(len(x)), "error": None}
+    return {"gain": float(slope), "intercept": float(intercept),
+            "r_squared": float(r2), "n": n, "error": None}
 
 
 class CalibrationCreate(BaseModel):
