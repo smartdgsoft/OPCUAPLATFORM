@@ -32,6 +32,13 @@ export default function Layout() {
 
   return (
     <div style={{ display: "flex", height: "100vh", background: "#f4f5f7", fontFamily: "system-ui, sans-serif" }}>
+      <style>{`
+        nav::-webkit-scrollbar { width: 6px; }
+        nav::-webkit-scrollbar-track { background: transparent; }
+        nav::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        nav::-webkit-scrollbar-thumb:hover { background: #475569; }
+        nav { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+      `}</style>
       <aside style={{ width: open ? 220 : 60, background: "#0f172a", display: "flex",
         flexDirection: "column", transition: "width 0.2s", flexShrink: 0, overflow: "hidden" }}>
         <div style={{ padding: "16px 12px", display: "flex", alignItems: "center", gap: 10,
@@ -45,7 +52,8 @@ export default function Layout() {
             {open ? <X size={16} /> : <Menu size={16} />}
           </button>
         </div>
-        <nav style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: 2 }}>
+        <nav style={{ flex: 1, padding: "12px 8px", display: "flex", flexDirection: "column", gap: 2,
+          overflowY: "auto", overflowX: "hidden", minHeight: 0 }}>
           {NAV.map(({ to, label, Icon }) => (
             <NavLink key={to} to={to} style={{ textDecoration: "none" }}>
               {({ isActive }) => (
