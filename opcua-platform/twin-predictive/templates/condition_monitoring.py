@@ -68,7 +68,7 @@ class ConditionMonitoringTemplate(ProblemTemplate):
                 "p05": float(s.quantile(0.05)), "p95": float(s.quantile(0.95)),
                 "slope_per_hour": float(slope), "intercept": float(intercept),
                 "label": bindings.get(tid, {}).get("label", tid),
-                "unit": bindings.get(tid, {}).get("unit", ""),
+                "unit": bindings.get(tid, {}).get("unit") or "",
             }
             metrics["signals"][tid] = {"trained": True, "n": n,
                                        "slope_per_hour": float(slope)}
@@ -111,7 +111,7 @@ class ConditionMonitoringTemplate(ProblemTemplate):
             if s.empty:
                 continue
             current = float(s.iloc[-1])
-            label = p["label"]; unit = p.get("unit", "")
+            label = p["label"]; unit = p.get("unit") or ""
             std = p["std"] or 1e-9
 
             # health score: how far current sits within the healthy band (0..1)

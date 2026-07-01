@@ -62,7 +62,7 @@ class SourceAttributedSetpointTemplate(ProblemTemplate):
             unit_entry = {
                 "mean": float(m.mean()), "std": float(m.std(ddof=1)) if n > 1 else 0.0,
                 "label": bindings.get(tid, {}).get("label", tid),
-                "unit": bindings.get(tid, {}).get("unit", ""),
+                "unit": bindings.get(tid, {}).get("unit") or "",
                 "gain": None, "gain_source": None,
             }
 
@@ -111,8 +111,12 @@ class SourceAttributedSetpointTemplate(ProblemTemplate):
     # ── evaluate: detect off-target unit + prescribe setting change ──────────
     def evaluate(self, config: Dict[str, Any], model: ModelState,
                  recent: pd.DataFrame, bindings: Dict[str, Any]) -> List[Output]:
+        import structlog
+        _log = structlog.get_logger("template.setpoint")
         units = model.parameters.get("units", {})
         if recent.empty or not units:
+            _log.info("setpoint_eval_skip", reason="empty_recent_or_units",
+                      recent_rows=int(recent.shape[0]), units=len(units))
             return []
         wide = self.pivot(recent)
         objective = config.get("objective", {})
@@ -123,23 +127,31 @@ class SourceAttributedSetpointTemplate(ProblemTemplate):
         measurements = self.inputs_by_role(config, "measurement")
         setting_map = dict(zip(measurements, settings)) if settings else {}
         deadband = float(objective.get("deadband", 0.0))
+        _log.info("setpoint_eval_start", target=target, unit_tids=list(units.keys()),
+                  wide_cols=[str(c) for c in wide.columns], deadband=deadband)
         out: List[Output] = []
 
         for tid, p in units.items():
             if tid not in wide.columns or target is None:
+                _log.info("setpoint_unit_skip", tid=tid, in_cols=(tid in wide.columns),
+                          target_is_none=(target is None))
                 continue
             m = wide[tid].dropna().astype(float)
             if m.empty:
+                _log.info("setpoint_unit_skip", tid=tid, reason="no_recent_values")
                 continue
             measured = float(m.tail(min(len(m), 20)).mean())  # smoothed recent measurement
-            label = p["label"]; unit = p.get("unit", "")
+            label = p["label"]; unit = p.get("unit") or ""
             error = target - measured
 
             # within deadband / spec -> nothing to do
             lo = bounds.get("min") if isinstance(bounds, dict) else None
             hi = bounds.get("max") if isinstance(bounds, dict) else None
             if abs(error) <= deadband:
+                _log.info("setpoint_unit_ok_ontarget", tid=tid, measured=measured,
+                          target=target, error=error, deadband=deadband)
                 continue
+            _log.info("setpoint_unit_offtarget", tid=tid, measured=measured, error=error)
 
             direction = "under" if error > 0 else "over"
             sev = "warning"
