@@ -15,6 +15,7 @@ from src.routers import predictive as predictive_router
 from src.routers import closed_loop as closed_loop_router
 from src.routers import connectivity as connectivity_router
 from src.routers import problem_templates as templates_router
+from src.routers import calibration as calibration_router
 from src.db.database import init_db, close_db
 from src.config.settings import settings
 from src.utils.logging import configure_logging
@@ -91,6 +92,7 @@ if FEATURE_HUB:
 
 if FEATURE_TMPL:
     app.include_router(templates_router.router, prefix="/api/templates", tags=["problem-templates"])
+    app.include_router(calibration_router.router, prefix="/api/calibration", tags=["calibration"])
     logger.info("feature_enabled", feature="problem_templates")
 
 @app.get("/api/health")

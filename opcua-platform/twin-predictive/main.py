@@ -101,15 +101,28 @@ async def handle_commands(pool: asyncpg.Pool, redis: aioredis.Redis) -> None:
     service owns the ML dependencies). First version trains -> auto-activated
     so the model starts scoring; later retrains stay 'trained' until activated."""
     pubsub = redis.pubsub()
-    await pubsub.subscribe("predictive:commands")
-    logger.info("command_listener_ready", channel="predictive:commands")
+    await pubsub.subscribe("predictive:commands", "calibration:commands")
+    logger.info("command_listener_ready", channels="predictive:commands,calibration:commands")
     async for msg in pubsub.listen():
         if msg.get("type") != "message":
             continue
+        channel = msg.get("channel", "")
         try:
             data = json.loads(msg["data"])
         except Exception:
             continue
+
+        # ── calibration: automated run ──────────────────────────────────────
+        if channel == "calibration:commands" or data.get("action") == "run":
+            if data.get("action") == "run" and data.get("calibration_id"):
+                try:
+                    from calibration import run_automated
+                    await run_automated(pool, redis, data["calibration_id"])
+                except Exception as exc:
+                    logger.error("calibration_run_failed",
+                                 calibration_id=data.get("calibration_id"), error=str(exc))
+            continue
+
         if data.get("cmd") != "train":
             continue
         model_id = data.get("model_id")

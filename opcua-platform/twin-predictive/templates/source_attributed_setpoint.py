@@ -66,9 +66,19 @@ class SourceAttributedSetpointTemplate(ProblemTemplate):
                 "gain": None, "gain_source": None,
             }
 
-            # learn gain from history if a paired setting stream exists and varies
+            # gain priority: calibrated (controlled experiment) > learned > datasheet.
+            # 1. calibrated gain — most trustworthy, from a designed calibration run
+            action = config.get("action", {})
+            cal_map = action.get("calibrated_gain_map") or {}
+            cal_entry = cal_map.get(tid)
+            if cal_entry and cal_entry.get("gain") is not None:
+                unit_entry["gain"] = float(cal_entry["gain"])
+                unit_entry["gain_source"] = "calibrated"
+                unit_entry["gain_r2"] = cal_entry.get("r_squared")
+
+            # 2. learn gain from history if a paired setting stream exists and varies
             stid = setting_map.get(tid)
-            if stid and stid in wide.columns:
+            if unit_entry["gain"] is None and stid and stid in wide.columns:
                 joined = pd.concat([m.rename("y"), wide[stid].rename("x")], axis=1).dropna()
                 if joined.shape[0] >= min_samples and joined["x"].std() > 1e-9:
                     # slope of measurement vs setting = gain (output per unit setting)
@@ -77,9 +87,8 @@ class SourceAttributedSetpointTemplate(ProblemTemplate):
                         unit_entry["gain"] = float(slope)
                         unit_entry["gain_source"] = "learned"
 
-            # fall back to configured/datasheet gain
+            # 3. fall back to configured/datasheet gain
             if unit_entry["gain"] is None:
-                action = config.get("action", {})
                 dg = action.get("datasheet_gain")
                 if dg:
                     unit_entry["gain"] = float(dg)
@@ -95,11 +104,15 @@ class SourceAttributedSetpointTemplate(ProblemTemplate):
             return ModelState(parameters=params, metrics=metrics, sample_count=total,
                               maturity=COLD_START, confidence=0.0)
 
-        # maturity: need a learned gain on every unit to be "mature"
+        # maturity: a unit with a calibrated OR learned gain is fully trustworthy.
+        # calibrated is the strongest (designed experiment); learned is strong;
+        # datasheet-only is 'warming' (a reasonable prior, not measured here).
         gains = [u["gain"] for u in params["units"].values()]
-        learned = [u for u in params["units"].values() if u["gain_source"] == "learned"]
-        if all(g is not None for g in gains) and len(learned) == len(gains):
-            maturity, conf = MATURE, 0.85
+        strong = [u for u in params["units"].values()
+                  if u["gain_source"] in ("calibrated", "learned")]
+        has_calibrated = any(u["gain_source"] == "calibrated" for u in params["units"].values())
+        if all(g is not None for g in gains) and len(strong) == len(gains):
+            maturity, conf = MATURE, (0.9 if has_calibrated else 0.85)
         elif any(g is not None for g in gains):
             maturity, conf = WARMING, 0.55
         else:

@@ -2,8 +2,9 @@ import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Boxes, Plus, Trash2, X, Check, ChevronLeft, Power, Activity, TrendingUp,
-  Gauge, AlertTriangle, CheckCircle2, Sparkles, Pencil,
+  Gauge, AlertTriangle, CheckCircle2, Sparkles, Pencil, Beaker,
 } from "lucide-react";
+import { CalibrationPanel } from "./CalibrationPanel";
 import {
   fetchProblemTemplates, fetchProblemInstances, createProblemInstance,
   updateProblemInstance, deleteProblemInstance, fetchProblemOutputs,
@@ -436,11 +437,13 @@ function CreateInstanceModal({ templates, tags, assets, servers, existing, error
 }
 
 function InstanceDetail({ instance, onBack }: { instance: ProblemInstance; onBack: () => void }) {
+  const [showCalibration, setShowCalibration] = useState(false);
   const { data: outputs = [] } = useQuery({
     queryKey: ["problem-outputs", instance.id],
     queryFn: () => fetchProblemOutputs(instance.id),
     refetchInterval: 4000,
   });
+  const isPrescribe = instance.template_key === "source_attributed_setpoint";
 
   return (
     <div>
@@ -456,8 +459,17 @@ function InstanceDetail({ instance, onBack }: { instance: ProblemInstance; onBac
           <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, color: "#0f172a" }}>{instance.name}</h1>
           <p style={{ color: "#64748b", fontSize: 14, margin: "2px 0 0" }}>{instance.template_key}</p>
         </div>
+        {isPrescribe && (
+          <button style={btn("#7c3aed")} onClick={() => setShowCalibration(true)}>
+            <Beaker size={16} /> Calibrate gain
+          </button>
+        )}
         <MaturityBadge maturity={instance.maturity} confidence={instance.confidence} />
       </div>
+
+      {showCalibration && (
+        <CalibrationPanel instance={instance} onClose={() => setShowCalibration(false)} />
+      )}
 
       <h3 style={{ fontSize: 14, fontWeight: 600, color: "#1e293b", marginBottom: 12 }}>
         Outputs ({outputs.length})

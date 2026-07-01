@@ -454,3 +454,36 @@ export const fetchProblemOutputs = (id: string): Promise<ProblemOutput[]> =>
   api.get<ProblemOutput[]>(`/templates/instances/${id}/outputs`).then((r) => r.data);
 export const fetchProblemModel = (id: string): Promise<any> =>
   api.get(`/templates/instances/${id}/model`).then((r) => r.data);
+
+// ── Gain Calibration ────────────────────────────────────────────────────────
+export interface Calibration {
+  id: string; unit_key?: string | null; mode: string; status: string;
+  computed_gain?: number | null; r_squared?: number | null; n_points: number;
+  notes?: string | null; error?: string | null; created_at: string; completed_at?: string | null;
+  measurement_tag_id?: string | null; setting_tag_id?: string | null; target_server_id?: string | null;
+  plan?: any; points?: CalibrationPoint[];
+}
+export interface CalibrationPoint {
+  step_index: number; setting_value: number; measured_value: number;
+  measured_std?: number | null; n_samples: number; source: string;
+}
+export interface CalibrationCreateInput {
+  instance_id: string; unit_key?: string | null;
+  measurement_tag_id?: string | null; setting_tag_id?: string | null; target_server_id?: string | null;
+  mode: string; plan?: any; notes?: string | null;
+}
+
+export const fetchCalibrations = (instanceId: string): Promise<Calibration[]> =>
+  api.get<Calibration[]>(`/calibration/instances/${instanceId}/calibrations`).then((r) => r.data);
+export const fetchCalibration = (id: string): Promise<Calibration> =>
+  api.get<Calibration>(`/calibration/calibrations/${id}`).then((r) => r.data);
+export const createCalibration = (b: CalibrationCreateInput): Promise<{ id: string }> =>
+  api.post("/calibration/calibrations", b).then((r) => r.data);
+export const addCalibrationPoint = (id: string, p: { step_index?: number; setting_value: number; measured_value: number; n_samples?: number }): Promise<any> =>
+  api.post(`/calibration/calibrations/${id}/points`, p).then((r) => r.data);
+export const runAutomatedCalibration = (id: string): Promise<any> =>
+  api.post(`/calibration/calibrations/${id}/run`).then((r) => r.data);
+export const applyCalibration = (id: string): Promise<any> =>
+  api.post(`/calibration/calibrations/${id}/apply`).then((r) => r.data);
+export const deleteCalibration = (id: string): Promise<void> =>
+  api.delete(`/calibration/calibrations/${id}`).then(() => undefined);
