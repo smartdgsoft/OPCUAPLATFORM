@@ -51,8 +51,9 @@ export const login = async (username: string, password: string): Promise<AuthTok
 };
 
 // ── Tags ────────────────────────────────────────────────────────────
-export const fetchTags = (assetId?: string): Promise<Tag[]> =>
-  api.get<Tag[]>("/tags/", { params: { asset_id: assetId } }).then((r) => r.data);
+export const fetchTags = (assetId?: string, includeInactive?: boolean): Promise<Tag[]> =>
+  api.get<Tag[]>("/tags/", { params: { asset_id: assetId,
+    ...(includeInactive ? { active_only: false } : {}) } }).then((r) => r.data);
 
 export const fetchLiveValues = (tagIds: string[]): Promise<TagLiveValue[]> =>
   api.get<TagLiveValue[]>("/tags/live", { params: { tag_ids: tagIds } }).then((r) => r.data);
