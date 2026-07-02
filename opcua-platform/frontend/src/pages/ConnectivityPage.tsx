@@ -213,6 +213,19 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
   const [modbusRegisters, setModbusRegisters] = useState(
     Array.isArray(ec.registers) ? JSON.stringify(ec.registers, null, 2)
       : '[\n  { "name": "weight:nozzle=3", "address": 100, "type": "holding", "data_type": "float32", "scale": 1.0 }\n]');
+  // REST fields
+  const [restUrl, setRestUrl] = useState(ec.url ?? "");
+  const [restMethod, setRestMethod] = useState(ec.method ?? "GET");
+  const [restAuthType, setRestAuthType] = useState(ec.auth?.type ?? "none");
+  const [restToken, setRestToken] = useState("");
+  const [restApiHeader, setRestApiHeader] = useState(ec.auth?.header ?? "X-API-Key");
+  const [restMapMode, setRestMapMode] = useState(ec.mapping?.mode ?? "fields");
+  const [restFields, setRestFields] = useState(
+    ec.mapping?.fields ? (Array.isArray(ec.mapping.fields) ? ec.mapping.fields.join(", ") : JSON.stringify(ec.mapping.fields)) : "temperature, pressure");
+  const [restArrayPath, setRestArrayPath] = useState(ec.mapping?.array_path ?? "data.readings");
+  const [restKeyField, setRestKeyField] = useState(ec.mapping?.key_field ?? "");
+  const [restValueField, setRestValueField] = useState(ec.mapping?.value_field ?? "value");
+  const [restTsField, setRestTsField] = useState(ec.mapping?.ts_field ?? "");
 
   const isEdit = !!existing;
   const isSqlite = dbType === "sqlite";
@@ -251,6 +264,21 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
         unit_id: Number(modbusUnit) || 1,
         registers: regs,
       };
+    } else if (type === "rest") {
+      const auth: any = { type: restAuthType };
+      if (restAuthType === "bearer") auth.token = restToken || (isEdit ? ec.auth?.token : "");
+      else if (restAuthType === "api_key") { auth.header = restApiHeader; auth.key = restToken || (isEdit ? ec.auth?.key : ""); }
+      else if (restAuthType === "basic") { auth.username = username.trim(); auth.password = password || (isEdit ? ec.auth?.password : ""); }
+      const mapping: any = { mode: restMapMode };
+      if (restMapMode === "fields") {
+        mapping.fields = restFields.split(",").map((s: string) => s.trim()).filter(Boolean);
+      } else {
+        mapping.array_path = restArrayPath.trim();
+        mapping.value_field = restValueField.trim() || "value";
+        if (restKeyField.trim()) mapping.key_field = restKeyField.trim();
+        if (restTsField.trim()) mapping.ts_field = restTsField.trim();
+      }
+      config = { url: restUrl.trim(), method: restMethod, auth, mapping, verify_tls: true };
     }
     return config;
   };
@@ -433,6 +461,82 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
           </>
         )}
 
+        {type === "rest" && (
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "3fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div><label style={lbl}>Endpoint URL *</label>
+                <input style={{ ...inp, fontFamily: "monospace", fontSize: 12 }} value={restUrl}
+                  onChange={(e) => setRestUrl(e.target.value)} placeholder="https://api.plant.local/v1/readings" /></div>
+              <div><label style={lbl}>Method</label>
+                <select style={inp} value={restMethod} onChange={(e) => setRestMethod(e.target.value)}>
+                  <option value="GET">GET</option><option value="POST">POST</option>
+                </select></div>
+            </div>
+
+            <label style={lbl}>Authentication</label>
+            <select style={{ ...inp, marginBottom: 10 }} value={restAuthType} onChange={(e) => setRestAuthType(e.target.value)}>
+              <option value="none">None</option>
+              <option value="bearer">Bearer token</option>
+              <option value="api_key">API key header</option>
+              <option value="basic">Basic auth</option>
+            </select>
+            {restAuthType === "bearer" && (
+              <div style={{ marginBottom: 12 }}><label style={lbl}>Token{isEdit ? " (blank = keep)" : ""}</label>
+                <input style={inp} type="password" value={restToken} onChange={(e) => setRestToken(e.target.value)} placeholder="••••••••" /></div>
+            )}
+            {restAuthType === "api_key" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={lbl}>Header name</label>
+                  <input style={inp} value={restApiHeader} onChange={(e) => setRestApiHeader(e.target.value)} placeholder="X-API-Key" /></div>
+                <div><label style={lbl}>Key{isEdit ? " (blank = keep)" : ""}</label>
+                  <input style={inp} type="password" value={restToken} onChange={(e) => setRestToken(e.target.value)} placeholder="••••••••" /></div>
+              </div>
+            )}
+            {restAuthType === "basic" && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                <div><label style={lbl}>Username</label>
+                  <input style={inp} value={username} onChange={(e) => setUsername(e.target.value)} /></div>
+                <div><label style={lbl}>Password{isEdit ? " (blank = keep)" : ""}</label>
+                  <input style={inp} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" /></div>
+              </div>
+            )}
+
+            <label style={lbl}>Response mapping</label>
+            <select style={{ ...inp, marginBottom: 10 }} value={restMapMode} onChange={(e) => setRestMapMode(e.target.value)}>
+              <option value="fields">Fields — response is one object, pull named fields</option>
+              <option value="array">Array — response is a list of readings (per-unit)</option>
+            </select>
+            {restMapMode === "fields" ? (
+              <>
+                <label style={lbl}>Fields (comma-separated; dotted paths allowed)</label>
+                <input style={{ ...inp, marginBottom: 12, fontFamily: "monospace", fontSize: 12 }}
+                  value={restFields} onChange={(e) => setRestFields(e.target.value)}
+                  placeholder="temperature, data.sensors.pressure" />
+              </>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 10 }}>
+                  <div><label style={lbl}>Array path ("" = root)</label>
+                    <input style={inp} value={restArrayPath} onChange={(e) => setRestArrayPath(e.target.value)} placeholder="data.readings" /></div>
+                  <div><label style={lbl}>Value field</label>
+                    <input style={inp} value={restValueField} onChange={(e) => setRestValueField(e.target.value)} placeholder="weight" /></div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                  <div><label style={lbl}>Key field (per-unit)</label>
+                    <input style={inp} value={restKeyField} onChange={(e) => setRestKeyField(e.target.value)} placeholder="nozzle" /></div>
+                  <div><label style={lbl}>Timestamp field (optional)</label>
+                    <input style={inp} value={restTsField} onChange={(e) => setRestTsField(e.target.value)} placeholder="timestamp" /></div>
+                </div>
+              </>
+            )}
+            <div style={{ fontSize: 12, color: "#64748b", background: "#f8fafc", borderRadius: 6, padding: "8px 10px", marginBottom: 12 }}>
+              {restMapMode === "array"
+                ? <>Array mode gives per-unit attribution: with key field <code>nozzle</code> and value <code>weight</code>, each record becomes <code>weight:nozzle=3</code> — the same attribution the learning engine uses.</>
+                : <>Fields mode pulls named values from one JSON object. Each field becomes a stream.</>}
+            </div>
+          </>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
           <div><label style={lbl}>Poll interval (ms)</label>
             <input style={inp} type="number" value={pollMs} onChange={(e) => setPollMs(+e.target.value)} /></div>
@@ -451,7 +555,7 @@ function AddSourceModal({ types, error, busy, existing, onCancel, onSubmit }: {
         )}
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", alignItems: "center" }}>
           <button style={{ ...btn("#f1f5f9", "#334155"), marginRight: "auto" }}
-            disabled={testState.status === "testing" || !host.trim()} onClick={runTest}>
+            disabled={testState.status === "testing" || (!host.trim() && !restUrl.trim())} onClick={runTest}>
             {testState.status === "testing" ? "Testing…" : "Test connection"}
           </button>
           <button style={btn("#f1f5f9", "#334155")} onClick={onCancel}>Cancel</button>

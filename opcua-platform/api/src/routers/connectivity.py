@@ -26,7 +26,7 @@ CONNECTOR_CATALOG = [
     {"key": "sql",         "name": "SQL Database",      "mode": "poll",      "available": True,  "note": "Postgres/MySQL/SQL Server/SQLite via SQLAlchemy"},
     {"key": "mqtt",        "name": "MQTT",              "mode": "subscribe", "available": True,  "note": "Broker subscribe; topic = stream key (paho-mqtt)"},
     {"key": "modbus_tcp",  "name": "Modbus TCP",        "mode": "poll",      "available": True,  "note": "Register polling; named registers = streams (pymodbus)"},
-    {"key": "rest",        "name": "REST",              "mode": "poll",      "available": False, "note": "planned"},
+    {"key": "rest",        "name": "REST API",          "mode": "poll",      "available": True,  "note": "HTTP JSON polling; fields or array mapping (httpx)"},
 ]
 
 

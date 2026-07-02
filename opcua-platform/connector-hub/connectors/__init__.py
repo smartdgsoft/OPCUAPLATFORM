@@ -11,11 +11,13 @@ from .base import BaseConnector
 from .sql import SqlConnector
 from .mqtt import MqttConnector
 from .modbus import ModbusConnector
+from .rest import RestConnector
 
 _REGISTRY: Dict[str, Type[BaseConnector]] = {
     SqlConnector.source_type: SqlConnector,
     MqttConnector.source_type: MqttConnector,
     ModbusConnector.source_type: ModbusConnector,
+    RestConnector.source_type: RestConnector,
 }
 
 
