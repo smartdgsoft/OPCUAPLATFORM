@@ -29,27 +29,27 @@ FEVICOL_LAYOUT = {
 
         # ── KPI row (5 across) ──
         {"id": "kpi_visc", "type": "kpi", "title": "Viscosity",
-         "pos": {"x": 0, "y": 2, "w": 2, "h": 3}, "options": {"color": GOLD, "decimals": 0},
+         "pos": {"x": 0, "y": 2, "w": 2, "h": 3}, "options": {"color": GOLD, "decimals": 0, "badge": "Spec"},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 4500, "max": 5200, "unit": "cP"}},
          "demo": {"value": 4850, "series": [4600, 4720, 4810, 4780, 4850, 4900, 4850]}},
         {"id": "kpi_ph", "type": "kpi", "title": "pH Value",
-         "pos": {"x": 2, "y": 2, "w": 2, "h": 3}, "options": {"color": TEAL, "decimals": 2},
+         "pos": {"x": 2, "y": 2, "w": 2, "h": 3}, "options": {"color": TEAL, "decimals": 2, "badge": "OK"},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 6.8, "max": 7.5, "unit": ""}},
          "demo": {"value": 7.2, "series": [7.0, 7.1, 7.15, 7.2, 7.18, 7.22, 7.2]}},
         {"id": "kpi_solids", "type": "kpi", "title": "Solids %",
-         "pos": {"x": 4, "y": 2, "w": 2, "h": 3}, "options": {"color": CYAN, "decimals": 1},
+         "pos": {"x": 4, "y": 2, "w": 2, "h": 3}, "options": {"color": CYAN, "decimals": 1, "badge": "Stable"},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 47, "max": 50, "unit": "% w/w"}},
          "demo": {"value": 48.3, "series": [47.8, 48.0, 48.2, 48.3, 48.1, 48.4, 48.3]}},
         {"id": "kpi_bond", "type": "kpi", "title": "Bond Strength",
-         "pos": {"x": 6, "y": 2, "w": 2, "h": 3}, "options": {"color": ROSE, "decimals": 0},
+         "pos": {"x": 6, "y": 2, "w": 2, "h": 3}, "options": {"color": ROSE, "decimals": 0, "badge": "Good"},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 150, "max": None, "unit": "N/cm²"}},
          "demo": {"value": 182, "series": [172, 176, 180, 178, 182, 185, 182]}},
         {"id": "kpi_oee", "type": "kpi", "title": "Line OEE",
-         "pos": {"x": 8, "y": 2, "w": 2, "h": 3}, "options": {"color": AMBER, "decimals": 1, "suffix": "%"},
+         "pos": {"x": 8, "y": 2, "w": 2, "h": 3}, "options": {"color": AMBER, "decimals": 1, "suffix": "%", "badge": "1.4%"},
          "binding": {"mode": "static", "spec": {"min": 89, "max": None, "unit": "%"}},
          "demo": {"value": 91.7, "series": [89, 90, 90.5, 91, 91.7, 92, 91.7]}},
 
@@ -116,23 +116,27 @@ FEVICOL_LAYOUT = {
              {"tag": "LB-401", "name": "Labeling Machine", "type": "Labeler", "status": "running", "load": 76},
              {"tag": "CP-401", "name": "Capping Machine", "type": "Capper", "status": "fault", "load": 0}]}},
 
-        # ── Rich P&ID schematic (drawn node/edge graph, live values on nodes) ──
+        # ── Rich P&ID schematic (HTML-matching layout, live values on nodes) ──
         {"id": "pid", "type": "schematic", "title": "Process Schematic",
          "pos": {"x": 8, "y": 11, "w": 4, "h": 7},
          "binding": {"mode": "live", "tag_ids": [], "stream_keys": []},
          "options": {
              "nodes": [
-                 {"id": "T201", "kind": "tank",    "label": "T-201\nPVA",      "x": 40,  "y": 40,  "value_tag": None, "demo": 62, "unit": "%"},
-                 {"id": "T202", "kind": "tank",    "label": "T-202\nAcrylic",  "x": 40,  "y": 150, "value_tag": None, "demo": 55, "unit": "%"},
-                 {"id": "R101", "kind": "reactor", "label": "R-101\nReactor",  "x": 180, "y": 90,  "value_tag": None, "demo": 78, "unit": "°C", "status": "batching"},
-                 {"id": "H301", "kind": "pump",    "label": "H-301\nHomog.",   "x": 320, "y": 90,  "value_tag": None, "demo": 70, "unit": "%"},
-                 {"id": "T302", "kind": "tank",    "label": "T-302\nHold",     "x": 440, "y": 90,  "value_tag": None, "demo": 35, "unit": "%", "status": "warning"},
-                 {"id": "FL401","kind": "filler",  "label": "FL-401\nFiller",  "x": 560, "y": 90,  "value_tag": None, "demo": 88, "unit": "%"}
+                 {"id": "T201", "type": "tank",    "label": "PVA",         "sub": "T-201",  "fx": 0.08, "fy": 0.35, "col": GOLD, "value_tag": None, "demo": 62, "unit": "%"},
+                 {"id": "T202", "type": "tank",    "label": "Acrylic",     "sub": "T-202",  "fx": 0.08, "fy": 0.72, "col": CYAN, "value_tag": None, "demo": 55, "unit": "%"},
+                 {"id": "R102", "type": "mixer",   "label": "Pre-Mix",     "sub": "R-102",  "fx": 0.24, "fy": 0.52, "col": TEAL, "value_tag": None, "demo": 45, "unit": "%"},
+                 {"id": "R101", "type": "reactor", "label": "Reactor",     "sub": "R-101",  "fx": 0.44, "fy": 0.52, "col": GOLD, "value_tag": None, "demo": 78, "unit": "°C", "status": "batching"},
+                 {"id": "T203", "type": "tank",    "label": "Additives",   "sub": "T-203",  "fx": 0.44, "fy": 0.16, "col": ROSE, "value_tag": None, "demo": 28, "unit": "%"},
+                 {"id": "T302", "type": "tank",    "label": "Cool & Hold", "sub": "T-302",  "fx": 0.63, "fy": 0.52, "col": CYAN, "value_tag": None, "demo": 35, "unit": "%", "status": "warning"},
+                 {"id": "H301", "type": "mixer",   "label": "Homogenizer", "sub": "H-301",  "fx": 0.79, "fy": 0.52, "col": TEAL, "value_tag": None, "demo": 80, "unit": "%"},
+                 {"id": "FL401","type": "filler",  "label": "Fill",        "sub": "FL-401", "fx": 0.94, "fy": 0.35, "col": GOLD, "value_tag": None, "demo": 73, "unit": "%"},
+                 {"id": "LB401","type": "box",     "label": "Pack",        "sub": "LB-401", "fx": 0.94, "fy": 0.72, "col": "#9a958a", "value_tag": None, "demo": 65, "unit": "%"}
              ],
              "edges": [
-                 {"from": "T201", "to": "R101"}, {"from": "T202", "to": "R101"},
-                 {"from": "R101", "to": "H301"}, {"from": "H301", "to": "T302"},
-                 {"from": "T302", "to": "FL401"}
+                 {"from": "T201", "to": "R102"}, {"from": "T202", "to": "R102"},
+                 {"from": "R102", "to": "R101"}, {"from": "T203", "to": "R101"},
+                 {"from": "R101", "to": "T302"}, {"from": "T302", "to": "H301"},
+                 {"from": "H301", "to": "FL401"}, {"from": "FL401", "to": "LB401"}
              ]
          },
          "demo": {"active": True}},
