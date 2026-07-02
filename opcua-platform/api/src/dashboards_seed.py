@@ -55,29 +55,29 @@ FEVICOL_LAYOUT = {
 
         # ── Reactor R-101 gauges (4 in a 2x2, right of KPIs) ──
         {"id": "g_temp", "type": "gauge", "title": "Temp",
-         "pos": {"x": 10, "y": 2, "w": 1, "h": 3},
+         "pos": {"x": 0, "y": 5, "w": 2, "h": 3},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 0, "max": 120, "warn": 85, "crit": 95, "unit": "°C"}},
          "options": {"color": GOLD}, "demo": {"value": 78}},
         {"id": "g_agit", "type": "gauge", "title": "Agitator",
-         "pos": {"x": 11, "y": 2, "w": 1, "h": 3},
+         "pos": {"x": 2, "y": 5, "w": 2, "h": 3},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 0, "max": 120, "warn": 100, "crit": 110, "unit": "RPM"}},
          "options": {"color": TEAL}, "demo": {"value": 64}},
         {"id": "g_press", "type": "gauge", "title": "Pressure",
-         "pos": {"x": 10, "y": 5, "w": 1, "h": 3},
+         "pos": {"x": 0, "y": 8, "w": 2, "h": 3},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 0, "max": 3, "warn": 2.2, "crit": 2.6, "unit": "bar"}},
          "options": {"color": CYAN}, "demo": {"value": 1.2}},
         {"id": "g_cool", "type": "gauge", "title": "Cooling",
-         "pos": {"x": 11, "y": 5, "w": 1, "h": 3},
+         "pos": {"x": 2, "y": 8, "w": 2, "h": 3},
          "binding": {"mode": "live", "tag_id": None, "stream_key": None,
                      "spec": {"min": 0, "max": 80, "warn": 55, "crit": 65, "unit": "°C"}},
          "options": {"color": ROSE}, "demo": {"value": 42}},
 
-        # ── Quality trends (multi-series line) ──
+        # ── Quality trends (multi-series line) — right of the gauges ──
         {"id": "trend", "type": "trend", "title": "Quality Trends",
-         "pos": {"x": 0, "y": 5, "w": 10, "h": 6},
+         "pos": {"x": 4, "y": 5, "w": 8, "h": 6},
          "binding": {"mode": "history", "resolution": "min1", "range": "1H",
                      "tag_ids": [], "stream_keys": [],
                      "series": [
@@ -85,7 +85,7 @@ FEVICOL_LAYOUT = {
                          {"label": "pH", "color": TEAL},
                          {"label": "Solids %", "color": CYAN},
                          {"label": "Temp °C", "color": ROSE}]},
-         "demo": {"points": 30}},
+         "demo": {"points": 48}},
 
         # ── Active alarms ──
         {"id": "alarms", "type": "alarm_list", "title": "Active Alarms",
