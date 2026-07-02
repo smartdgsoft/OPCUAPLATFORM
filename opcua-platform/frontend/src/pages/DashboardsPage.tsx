@@ -89,6 +89,8 @@ function DashboardView({ id }: { id: string }) {
   const { data: dash } = useQuery({ queryKey: ["dashboard", id], queryFn: () => fetchDashboard(id) });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Dashboard | null>(null);
+  const [drag, setDrag] = useState<{ id: string } | null>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
   const tagCount = useDashboardTagCount(dash?.layout);
 
   const saveMut = useMutation({
@@ -113,6 +115,38 @@ function DashboardView({ id }: { id: string }) {
     return { ...d, layout: { ...d.layout, widgets: [...d.layout.widgets, nw] } };
   });
   const removeWidget = (wid: string) => setDraft((d) => d ? { ...d, layout: { ...d.layout, widgets: d.layout.widgets.filter((w) => w.id !== wid) } } : d);
+
+  // ── mouse drag-move / resize with grid snapping ──
+  const startDrag = (e: React.MouseEvent, w: DashboardWidget, mode: "move" | "resize") => {
+    // ignore drags that start on interactive controls (buttons/inputs/selects)
+    const tgt = e.target as HTMLElement;
+    if (tgt.closest("button, input, select, textarea")) return;
+    e.preventDefault();
+    const gridEl = gridRef.current; if (!gridEl) return;
+    const rect = gridEl.getBoundingClientRect();
+    const gap = 12;
+    const cellW = (rect.width - gap * (cols - 1)) / cols;
+    const cellH = rowH;
+    const startX = e.clientX, startY = e.clientY;
+    const orig = { ...w.pos };
+    setDrag({ id: w.id });
+    const onMove = (ev: MouseEvent) => {
+      const dxCells = Math.round((ev.clientX - startX) / (cellW + gap));
+      const dyCells = Math.round((ev.clientY - startY) / (cellH + gap));
+      if (mode === "move") {
+        const nx = Math.max(0, Math.min(cols - orig.w, orig.x + dxCells));
+        const ny = Math.max(0, orig.y + dyCells);
+        updateWidget(w.id, { pos: { ...orig, x: nx, y: ny } });
+      } else {
+        const nw2 = Math.max(1, Math.min(cols - orig.x, orig.w + dxCells));
+        const nh2 = Math.max(1, orig.h + dyCells);
+        updateWidget(w.id, { pos: { ...orig, w: nw2, h: nh2 } });
+      }
+    };
+    const onUp = () => { setDrag(null); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   return (
     <DemoModeContext.Provider value={model.demo_mode}>
@@ -153,11 +187,21 @@ function DashboardView({ id }: { id: string }) {
 
         {/* grid */}
         <div style={{ flex: 1, overflow: "auto", padding: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: `${rowH}px`, gap: 12, position: "relative" }}>
+          <div ref={gridRef} style={{ display: "grid", gridTemplateColumns: `repeat(${cols}, 1fr)`, gridAutoRows: `${rowH}px`, gap: 12, position: "relative" }}>
             {model.layout.widgets.map((w) => (
-              <div key={w.id} style={{ gridColumn: `${w.pos.x + 1} / span ${w.pos.w}`, gridRow: `${w.pos.y + 1} / span ${w.pos.h}`, position: "relative" }}>
+              <div key={w.id}
+                onMouseDown={editing ? (e) => startDrag(e, w, "move") : undefined}
+                style={{ gridColumn: `${w.pos.x + 1} / span ${w.pos.w}`, gridRow: `${w.pos.y + 1} / span ${w.pos.h}`, position: "relative",
+                  cursor: editing ? (drag?.id === w.id ? "grabbing" : "grab") : "default",
+                  outline: editing ? `1px dashed ${T.borderLight}` : "none", outlineOffset: 2,
+                  opacity: drag?.id === w.id ? 0.85 : 1 }}>
                 <Widget w={w} />
                 {editing ? <WidgetEditOverlay w={w} onChange={(p) => updateWidget(w.id, p)} onRemove={() => removeWidget(w.id)} cols={cols} /> : null}
+                {editing ? (
+                  <div onMouseDown={(e) => { e.stopPropagation(); startDrag(e, w, "resize"); }}
+                    style={{ position: "absolute", right: 0, bottom: 0, width: 16, height: 16, cursor: "nwse-resize", zIndex: 6,
+                      background: `linear-gradient(135deg, transparent 50%, ${T.gold} 50%)`, borderBottomRightRadius: 10 }} />
+                ) : null}
               </div>
             ))}
           </div>
@@ -179,7 +223,7 @@ function WidgetEditOverlay({ w, onChange, onRemove, cols }: { w: DashboardWidget
         <button style={{ ...iconBtn, padding: "3px 5px", background: T.bgElevated, color: T.red }} onClick={onRemove}><Trash2 size={12} /></button>
       </div>
       {open ? (
-        <div style={{ position: "absolute", top: 30, right: 4, width: 240, background: T.bgElevated, border: `1px solid ${T.borderLight}`, borderRadius: 8, padding: 12, zIndex: 20, boxShadow: "0 8px 30px rgba(0,0,0,0.5)" }}>
+        <div onMouseDown={(e) => e.stopPropagation()} style={{ position: "absolute", top: 30, right: 4, width: 240, background: T.bgElevated, border: `1px solid ${T.borderLight}`, borderRadius: 8, padding: 12, zIndex: 20, boxShadow: "0 8px 30px rgba(0,0,0,0.5)" }}>
           <div style={{ fontSize: 11, color: T.textSec, marginBottom: 6 }}>Title</div>
           <input value={w.title ?? ""} onChange={(e) => onChange({ title: e.target.value })} style={inp} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, margin: "10px 0" }}>
@@ -188,7 +232,27 @@ function WidgetEditOverlay({ w, onChange, onRemove, cols }: { w: DashboardWidget
                 <input type="number" value={w.pos[k]} onChange={(e) => setPos(k, +e.target.value)} style={{ ...inp, padding: "4px 6px" }} /></div>
             ))}
           </div>
-          {(w.binding?.mode === "live" || w.type === "kpi" || w.type === "gauge") ? (
+          {w.type === "schematic" ? (
+            <>
+              <div style={{ fontSize: 11, color: T.textSec, marginBottom: 4 }}>Bind each node to a tag</div>
+              <div style={{ maxHeight: 200, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                {(w.options?.nodes ?? []).map((n: any) => (
+                  <div key={n.id}>
+                    <div style={{ fontSize: 10, color: T.textMuted }}>{(n.label ?? n.id).replace("\n", " ")}</div>
+                    <select value={n.value_tag ?? ""} style={{ ...inp, padding: "4px 6px" }}
+                      onChange={(e) => {
+                        const nodes = (w.options?.nodes ?? []).map((x: any) => x.id === n.id ? { ...x, value_tag: e.target.value || null } : x);
+                        onChange({ options: { ...w.options, nodes } });
+                      }}>
+                      <option value="">— demo —</option>
+                      {tags.map((t: any) => <option key={t.id} value={t.id}>{t.display_name}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <p style={{ fontSize: 10, color: T.textMuted, marginTop: 6 }}>Each bound node shows its live value with a dot; unbound nodes show demo values.</p>
+            </>
+          ) : (w.binding?.mode === "live" || w.type === "kpi" || w.type === "gauge") ? (
             <>
               <div style={{ fontSize: 11, color: T.textSec, marginBottom: 4 }}>Bind to tag (live)</div>
               <select value={w.binding?.tag_id ?? ""} onChange={(e) => onChange({ binding: { ...w.binding, mode: "live", tag_id: e.target.value || null } })} style={inp}>

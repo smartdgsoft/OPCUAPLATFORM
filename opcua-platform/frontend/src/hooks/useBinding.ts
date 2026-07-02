@@ -123,6 +123,26 @@ export function useAssetsData(enabled: boolean) {
   });
 }
 
+/**
+ * useLiveTags — subscribe to many tag_ids at once via the shared bus and get a
+ * { tag_id -> {value,quality,ts} } map. Used by the schematic, where each node
+ * binds to its own tag. Reuses the SAME multiplexed socket as single-tag live.
+ */
+export function useLiveTags(tagIds: string[], enabled = true): Record<string, { value: number | string; quality: number; ts: string }> {
+  const [, force] = useState(0);
+  const key = tagIds.filter(Boolean).join(",");
+  useEffect(() => {
+    if (!enabled || !key) return;
+    const off = liveBus.subscribe(key.split(","), () => force((n) => n + 1));
+    return off;
+  }, [key, enabled]);
+  return useMemo(() => {
+    const out: Record<string, any> = {};
+    key.split(",").filter(Boolean).forEach((t) => { const v = liveBus.get(t); if (v) out[t] = v; });
+    return out;
+  }, [key, enabled]);
+}
+
 // how many live tags a whole dashboard references (for a header indicator)
 export function useDashboardTagCount(layout: DashboardLayout | undefined): number {
   return useMemo(() => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from "react";
-import { useBinding, useAlarmsData, useAssetsData, type ResolvedData } from "../../hooks/useBinding";
+import { useBinding, useAlarmsData, useAssetsData, useLiveTags, useGlobalDemo, type ResolvedData } from "../../hooks/useBinding";
 import type { DashboardWidget } from "../../services/api";
 
 // ---- NEXUS theme tokens ----
@@ -254,52 +254,64 @@ const KIND_STYLE: Record<string, { fill: string; icon: string }> = {
 };
 function SchematicWidget({ w }: { w: DashboardWidget }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const nodes = w.options?.nodes ?? [];
-  const edges = w.options?.edges ?? [];
+  const nodes: any[] = w.options?.nodes ?? [];
+  const edges: any[] = w.options?.edges ?? [];
+  const globalDemo = useGlobalDemo();
+  // each node may bind to its own tag via value_tag; subscribe to all of them
+  const nodeTags = nodes.map((n) => n.value_tag).filter(Boolean);
+  const live = useLiveTags(nodeTags, !globalDemo && nodeTags.length > 0);
+  const anyLive = Object.keys(live).length > 0;
+  const liveRef = useRef(live); liveRef.current = live;
+
   useEffect(() => {
     const c = ref.current; if (!c) return; const ctx = c.getContext("2d"); if (!ctx) return;
-    const parent = c.parentElement!; c.width = parent.clientWidth; c.height = parent.clientHeight;
-    const W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
-    // fit the authored coordinate space (approx 620x210) into the canvas
-    const spanX = 640, spanY = 220; const sx = W / spanX, sy = H / spanY; const s = Math.min(sx, sy);
-    const ox = (W - spanX * s) / 2, oy = (H - spanY * s) / 2;
-    const P = (x: number, y: number) => [ox + x * s, oy + y * s] as [number, number];
-    const byId: Record<string, any> = {}; nodes.forEach((n: any) => (byId[n.id] = n));
-    // edges (pipes)
-    edges.forEach((e: any) => {
-      const a = byId[e.from], b = byId[e.to]; if (!a || !b) return;
-      const [ax, ay] = P(a.x + 26, a.y + 14), [bx, by] = P(b.x - 4, b.y + 14);
-      ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo((ax + bx) / 2, ay); ctx.lineTo((ax + bx) / 2, by); ctx.lineTo(bx, by);
-      ctx.strokeStyle = T.borderLight; ctx.lineWidth = 2; ctx.stroke();
-      // flow dot
-      const t = (Date.now() / 900 % 1); const fx = ax + (bx - ax) * t, fy = ay + (by - ay) * t;
-      ctx.beginPath(); ctx.arc(fx, fy, 2, 0, Math.PI * 2); ctx.fillStyle = T.teal; ctx.fill();
-    });
-    // nodes
-    nodes.forEach((n: any) => {
-      const [x, y] = P(n.x, n.y); const nw = 52 * s, nh = 30 * s;
-      const st = KIND_STYLE[n.kind] ?? KIND_STYLE.valve;
-      const statusCol = n.status === "warning" ? T.amber : n.status === "fault" ? T.red : n.status === "batching" ? T.gold : T.border;
-      ctx.fillStyle = st.fill; ctx.strokeStyle = statusCol; ctx.lineWidth = 1.5;
-      roundRect(ctx, x, y, nw, nh, 4 * s); ctx.fill(); ctx.stroke();
-      const label = (n.label ?? "").split("\n");
-      ctx.fillStyle = T.textSec; ctx.font = `${9 * s}px 'Rajdhani',sans-serif`; ctx.textAlign = "center";
-      label.forEach((ln: string, i: number) => ctx.fillText(ln, x + nw / 2, y + 11 * s + i * 9 * s));
-      // value chip below
-      const val = n.demo != null ? `${n.demo}${n.unit ?? ""}` : "—";
-      ctx.fillStyle = T.gold; ctx.font = `bold ${9 * s}px 'Rajdhani',sans-serif`;
-      ctx.fillText(val, x + nw / 2, y + nh + 10 * s);
-    });
-    function roundRect(c: CanvasRenderingContext2D, x: number, y: number, w2: number, h2: number, r: number) {
-      c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w2, y, x + w2, y + h2, r); c.arcTo(x + w2, y + h2, x, y + h2, r);
-      c.arcTo(x, y + h2, x, y, r); c.arcTo(x, y, x + w2, y, r); c.closePath();
-    }
-  });
-  // animate flow
-  useEffect(() => { const id = setInterval(() => { const c = ref.current; if (c) c.dispatchEvent(new Event("x")); }, 60); return () => clearInterval(id); }, []);
+    let raf = 0;
+    const roundRect = (cc: CanvasRenderingContext2D, x: number, y: number, w2: number, h2: number, r: number) => {
+      cc.beginPath(); cc.moveTo(x + r, y); cc.arcTo(x + w2, y, x + w2, y + h2, r); cc.arcTo(x + w2, y + h2, x, y + h2, r);
+      cc.arcTo(x, y + h2, x, y, r); cc.arcTo(x, y, x + w2, y, r); cc.closePath();
+    };
+    const draw = () => {
+      const parent = c.parentElement!; c.width = parent.clientWidth; c.height = parent.clientHeight;
+      const W = c.width, H = c.height; ctx.clearRect(0, 0, W, H);
+      const spanX = 640, spanY = 220; const s = Math.min(W / spanX, H / spanY);
+      const ox = (W - spanX * s) / 2, oy = (H - spanY * s) / 2;
+      const P = (x: number, y: number) => [ox + x * s, oy + y * s] as [number, number];
+      const byId: Record<string, any> = {}; nodes.forEach((n) => (byId[n.id] = n));
+      edges.forEach((e) => {
+        const a = byId[e.from], b = byId[e.to]; if (!a || !b) return;
+        const [ax, ay] = P(a.x + 26, a.y + 14), [bx, by] = P(b.x - 4, b.y + 14);
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo((ax + bx) / 2, ay); ctx.lineTo((ax + bx) / 2, by); ctx.lineTo(bx, by);
+        ctx.strokeStyle = T.borderLight; ctx.lineWidth = 2; ctx.stroke();
+        const t = (Date.now() / 900) % 1; const fx = ax + (bx - ax) * t, fy = ay + (by - ay) * t;
+        ctx.beginPath(); ctx.arc(fx, fy, 2, 0, Math.PI * 2); ctx.fillStyle = T.teal; ctx.fill();
+      });
+      nodes.forEach((n) => {
+        const [x, y] = P(n.x, n.y); const nw = 52 * s, nh = 30 * s;
+        const st = KIND_STYLE[n.kind] ?? KIND_STYLE.valve;
+        const statusCol = n.status === "warning" ? T.amber : n.status === "fault" ? T.red : n.status === "batching" ? T.gold : T.border;
+        ctx.fillStyle = st.fill; ctx.strokeStyle = statusCol; ctx.lineWidth = 1.5;
+        roundRect(ctx, x, y, nw, nh, 4 * s); ctx.fill(); ctx.stroke();
+        const label = (n.label ?? "").split("\n");
+        ctx.fillStyle = T.textSec; ctx.font = `${9 * s}px 'Rajdhani',sans-serif`; ctx.textAlign = "center";
+        label.forEach((ln: string, i: number) => ctx.fillText(ln, x + nw / 2, y + 11 * s + i * 9 * s));
+        // value chip: live if this node's tag is producing, else demo
+        const lv = !globalDemo && n.value_tag ? liveRef.current[n.value_tag] : undefined;
+        const num: any = lv ? lv.value : n.demo;
+        const isLive = !!lv;
+        const disp = num == null ? "—" : (typeof num === "number" ? (Math.abs(num) >= 1000 ? num.toFixed(0) : num.toFixed(1)) : num);
+        ctx.fillStyle = isLive ? T.teal : T.gold; ctx.font = `bold ${9 * s}px 'Rajdhani',sans-serif`;
+        ctx.fillText(`${disp}${n.unit ?? ""}`, x + nw / 2, y + nh + 10 * s);
+        if (isLive) { ctx.beginPath(); ctx.arc(x + nw - 3 * s, y + 4 * s, 2 * s, 0, Math.PI * 2); ctx.fillStyle = T.teal; ctx.fill(); }
+      });
+      raf = requestAnimationFrame(draw);
+    };
+    draw();
+    return () => cancelAnimationFrame(raf);
+  }, [nodes, edges, globalDemo]);
+
   return (
     <div style={card}>
-      <div style={titleRow}><span style={titleTxt}>{w.title}</span><DemoBadge /></div>
+      <div style={titleRow}><span style={titleTxt}>{w.title}</span>{anyLive ? <LiveDot /> : <DemoBadge />}</div>
       <div style={{ flex: 1, minHeight: 160, position: "relative" }}><canvas ref={ref} style={{ width: "100%", height: "100%" }} /></div>
     </div>
   );
