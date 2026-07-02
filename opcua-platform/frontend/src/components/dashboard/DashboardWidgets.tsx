@@ -85,24 +85,26 @@ function KpiWidget({ w }: { w: DashboardWidget }) {
   return (
     <div style={{ ...card, position: "relative" }}>
       <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: color, opacity: 0.5 }} />
-      <div style={{ ...titleRow, alignItems: "flex-start" }}>
-        <span style={{ ...titleTxt, maxWidth: "62%", lineHeight: 1.2 }}>{w.title}</span>
+      <div style={{ ...titleRow, alignItems: "flex-start", marginBottom: 6 }}>
+        <span style={{ ...titleTxt, maxWidth: "58%", lineHeight: 1.2 }}>{w.title}</span>
         <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
           {badge ? (
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase",
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.04em", padding: "2px 6px", borderRadius: 4, textTransform: "uppercase", whiteSpace: "nowrap",
               background: inSpec ? "rgba(45,212,168,0.14)" : "rgba(239,68,68,0.14)", color: inSpec ? T.teal : T.red }}>
               {inSpec ? "✓ " : ""}{badge}
             </span>
           ) : null}
-          {r.isDemo ? <DemoBadge /> : <LiveDot />}
+          {/* live/demo indicator as a tiny dot to save space */}
+          <span title={r.isDemo ? "demo" : "live"} style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+            background: r.isDemo ? T.textMuted : T.teal, boxShadow: r.isDemo ? "none" : `0 0 5px ${T.teal}` }} />
         </div>
       </div>
-      <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 32, fontWeight: 700, color: T.textPri, lineHeight: 1, marginTop: 2 }}>
+      <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 30, fontWeight: 700, color: T.textPri, lineHeight: 1 }}>
         {fmt(value, w.options?.decimals ?? 0, w.options?.suffix ?? "")}
       </div>
-      <div style={{ marginTop: "auto" }}>
+      <div style={{ marginTop: "auto", paddingTop: 6 }}>
         <Spark data={series} color={color} />
-        <span style={{ fontSize: 10.5, color: T.textMuted }}>{specTxt}</span>
+        <span style={{ fontSize: 10, color: T.textMuted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "block" }}>{specTxt}</span>
       </div>
     </div>
   );
@@ -154,13 +156,16 @@ function TrendWidget({ w }: { w: DashboardWidget }) {
     const w0 = parent.clientWidth, h0 = parent.clientHeight; ctx.clearRect(0, 0, w0, h0);
     const pad = { l: 40, r: 34, t: 10, b: 20 };
     const plotW = w0 - pad.l - pad.r, plotH = h0 - pad.t - pad.b;
-    const n = w.demo?.points ?? 40;
-    // demo: dense pseudo-real signals; live: normalized history for series 0
-    const mkDemo = (seed: number, spiky: boolean) => Array.from({ length: n }, (_, i) =>
-      0.5 + (spiky ? 0.32 * Math.sin(i / 2.2 + seed) + (Math.sin(i * 1.3 + seed) * 0.12) + (Math.random() - 0.5) * 0.16
-                   : 0.5 * Math.sin(i / 5 + seed) * 0.4 + 0.1 * Math.sin(i / 2 + seed)));
+    const n = w.demo?.points ?? 48;
+    // HTML character: primary (viscosity) is a spiky high-frequency signal;
+    // the others are near-flat reference lines. Makes the gold signal pop.
+    const mkPrimary = (seed: number) => Array.from({ length: n }, (_, i) =>
+      0.5 + 0.30 * Math.sin(i / 2.0 + seed) + 0.18 * Math.sin(i * 1.4 + seed) + (Math.random() - 0.5) * 0.22);
+    const mkFlat = (seed: number, level: number) => Array.from({ length: n }, (_, i) =>
+      level + 0.015 * Math.sin(i / 6 + seed) + (Math.random() - 0.5) * 0.02);
+    const flatLevels = [0.5, 0.82, 0.32, 0.9];
     const datasets = (r.isDemo || !r.history)
-      ? series.map((_, si) => mkDemo(si * 2.1, si === 0))
+      ? series.map((_, si) => si === 0 ? mkPrimary(si * 2.1) : mkFlat(si * 1.7, flatLevels[si] ?? 0.5))
       : [normalize(r.history.map((p) => p.v))];
     // left axis labels (primary series scale, demo uses viscosity-like range)
     const leftMin = 4800, leftMax = 4950, rightMin = 20, rightMax = 80;

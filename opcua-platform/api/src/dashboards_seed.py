@@ -89,7 +89,7 @@ FEVICOL_LAYOUT = {
 
         # ── Active alarms ──
         {"id": "alarms", "type": "alarm_list", "title": "Active Alarms",
-         "pos": {"x": 0, "y": 11, "w": 4, "h": 7},
+         "pos": {"x": 0, "y": 11, "w": 6, "h": 8},
          "binding": {"mode": "alarms", "filter": {"active_only": True}},
          "demo": {"rows": [
              {"id": "AL-1081", "tag": "VT-101-TEMP", "desc": "Reactor R-101 temperature approaching high limit (82°C)", "severity": "critical", "time": "14:32:07", "acked": False},
@@ -100,7 +100,7 @@ FEVICOL_LAYOUT = {
 
         # ── Equipment status ──
         {"id": "equip", "type": "equipment_list", "title": "Equipment Status",
-         "pos": {"x": 4, "y": 11, "w": 4, "h": 7},
+         "pos": {"x": 6, "y": 11, "w": 6, "h": 8},
          "binding": {"mode": "assets", "filter": {}},
          "demo": {"rows": [
              {"tag": "R-101", "name": "Polymerization Reactor", "type": "Reactor", "status": "batching", "load": 78},
@@ -116,9 +116,9 @@ FEVICOL_LAYOUT = {
              {"tag": "LB-401", "name": "Labeling Machine", "type": "Labeler", "status": "running", "load": 76},
              {"tag": "CP-401", "name": "Capping Machine", "type": "Capper", "status": "fault", "load": 0}]}},
 
-        # ── Rich P&ID schematic (HTML-matching layout, live values on nodes) ──
+        # ── Rich P&ID schematic (full-width bottom panel, HTML proportions) ──
         {"id": "pid", "type": "schematic", "title": "Process Schematic",
-         "pos": {"x": 8, "y": 11, "w": 4, "h": 7},
+         "pos": {"x": 0, "y": 19, "w": 12, "h": 7},
          "binding": {"mode": "live", "tag_ids": [], "stream_keys": []},
          "options": {
              "nodes": [
