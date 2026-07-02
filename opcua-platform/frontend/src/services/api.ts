@@ -534,10 +534,7 @@ export const deleteDashboard = (id: string): Promise<void> =>
 export const seedFevicolDashboard = (): Promise<{ id: string; name: string }> =>
   api.post("/dashboards/seed/fevicol").then((r) => r.data);
 
-// live values (batch) + history for dashboard widgets — reuse existing endpoints
-export interface TagLive { tag_id: string; value: number | string; quality: number; ts: string; }
-export const fetchLiveValues = (tagIds: string[]): Promise<TagLive[]> =>
-  tagIds.length ? api.get<TagLive[]>(`/tags/live`, { params: { tag_ids: tagIds }, paramsSerializer: { indexes: null } }).then((r) => r.data) : Promise.resolve([]);
+// history for dashboard trend widgets — reuse existing history endpoint
 export const fetchTagHistory = (tagId: string, range: string, resolution: string): Promise<{ points: { t: string; v: number }[] }> =>
   api.get(`/history/${tagId}`, { params: { range, resolution } }).then((r) => {
     const d: any = r.data;
