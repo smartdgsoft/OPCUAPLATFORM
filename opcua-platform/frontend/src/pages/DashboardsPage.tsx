@@ -8,7 +8,7 @@ import {
 import { Widget, T } from "../components/dashboard/DashboardWidgets";
 import { DemoModeContext, useDashboardTagCount } from "../hooks/useBinding";
 import {
-  LayoutGrid, Plus, Pencil, Trash2, Save, X, Sparkles, Monitor, Settings2, Check,
+  LayoutGrid, Plus, Pencil, Trash2, Save, X, Sparkles, Monitor, Settings2, Check, ChevronDown,
 } from "lucide-react";
 
 const WIDGET_TYPES = ["kpi", "gauge", "trend", "alarm_list", "equipment_list", "batch_bar", "schematic", "text"];
@@ -35,29 +35,14 @@ export default function DashboardsPage() {
   }
 
   return (
-    <div style={{ background: "#0e1015", minHeight: "calc(100vh - 60px)", margin: -24, color: T.textPri, display: "flex" }}>
-      {/* dashboard switcher rail */}
-      <div style={{ width: 210, borderRight: `1px solid ${T.border}`, padding: 12, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textSec, fontFamily: "'Rajdhani',sans-serif" }}>Dashboards</span>
-          <button title="New" onClick={() => createDashboard({ name: "New Dashboard", layout: { grid: { cols: 12, row_height: 38 }, widgets: [] } }).then((r) => { qc.invalidateQueries({ queryKey: ["dashboards"] }); setSelectedId(r.id); })}
-            style={iconBtn}><Plus size={14} /></button>
-        </div>
-        {list.map((d) => (
-          <div key={d.id} onClick={() => setSelectedId(d.id)}
-            style={{ padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 4,
-              background: d.id === activeId ? "rgba(232,168,48,0.12)" : "transparent",
-              color: d.id === activeId ? T.gold : T.textSec, fontSize: 13,
-              boxShadow: d.id === activeId ? `inset 2px 0 0 ${T.gold}` : "none" }}>
-            {d.name}{d.is_default ? <span style={{ fontSize: 9, marginLeft: 6, color: T.textMuted }}>default</span> : null}
-          </div>
-        ))}
-        <button onClick={() => seedMut.mutate()} disabled={seedMut.isPending}
-          style={{ ...iconBtn, width: "100%", marginTop: 10, gap: 6, fontSize: 12, color: T.textMuted }}>
-          <Sparkles size={13} /> Seed Fevicol demo
-        </button>
-      </div>
-      {activeId ? <DashboardView key={activeId} id={activeId} /> : null}
+    <div style={{ background: "#0e1015", minHeight: "calc(100vh - 60px)", margin: -24, color: T.textPri }}>
+      {activeId ? (
+        <DashboardView key={activeId} id={activeId}
+          list={list} activeId={activeId} onSwitch={setSelectedId}
+          onNew={() => createDashboard({ name: "New Dashboard", layout: { grid: { cols: 12, row_height: 38 }, widgets: [] } }).then((r) => { qc.invalidateQueries({ queryKey: ["dashboards"] }); setSelectedId(r.id); })}
+          onSeed={() => seedMut.mutate()} seeding={seedMut.isPending}
+        />
+      ) : null}
     </div>
   );
 }
@@ -84,8 +69,12 @@ function EmptyState({ onSeed, seeding }: { onSeed: () => void; seeding: boolean 
   );
 }
 
-function DashboardView({ id }: { id: string }) {
+function DashboardView({ id, list, activeId, onSwitch, onNew, onSeed, seeding }: {
+  id: string; list: DashboardSummary[]; activeId: string;
+  onSwitch: (id: string) => void; onNew: () => void; onSeed: () => void; seeding: boolean;
+}) {
   const qc = useQueryClient();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   const { data: dash } = useQuery({ queryKey: ["dashboard", id], queryFn: () => fetchDashboard(id) });
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Dashboard | null>(null);
@@ -153,9 +142,41 @@ function DashboardView({ id }: { id: string }) {
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: `1px solid ${T.border}`, background: "linear-gradient(180deg,#151820,#0e1015)" }}>
-          <div>
-            <h1 style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 22, fontWeight: 700, margin: 0 }}>{model.layout.header?.title ?? model.name}</h1>
-            {model.layout.header?.subtitle ? <p style={{ fontSize: 11, color: T.textMuted, margin: "2px 0 0" }}>{model.layout.header.subtitle}</p> : null}
+          <div style={{ position: "relative" }}>
+            <div onClick={() => setSwitcherOpen((o) => !o)} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <div>
+                <h1 style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 22, fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                  {model.layout.header?.title ?? model.name}
+                  <ChevronDown size={18} color={T.textSec} style={{ transform: switcherOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                </h1>
+                {model.layout.header?.subtitle ? <p style={{ fontSize: 11, color: T.textMuted, margin: "2px 0 0" }}>{model.layout.header.subtitle}</p> : null}
+              </div>
+            </div>
+            {switcherOpen ? (
+              <>
+                <div onClick={() => setSwitcherOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 30 }} />
+                <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 8, width: 280, background: T.bgElevated, border: `1px solid ${T.borderLight}`, borderRadius: 10, padding: 6, zIndex: 40, boxShadow: "0 12px 40px rgba(0,0,0,0.55)" }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: T.textMuted, padding: "6px 10px" }}>Dashboards</div>
+                  {list.map((d) => (
+                    <div key={d.id} onClick={() => { onSwitch(d.id); setSwitcherOpen(false); }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, cursor: "pointer",
+                        background: d.id === activeId ? "rgba(232,168,48,0.12)" : "transparent", color: d.id === activeId ? T.gold : T.textSec, fontSize: 13 }}>
+                      <Monitor size={14} style={{ flexShrink: 0 }} />
+                      <span style={{ flex: 1 }}>{d.name}</span>
+                      {d.is_default ? <span style={{ fontSize: 9, color: T.textMuted }}>default</span> : null}
+                      {d.id === activeId ? <Check size={13} /> : null}
+                    </div>
+                  ))}
+                  <div style={{ height: 1, background: T.border, margin: "6px 4px" }} />
+                  <div onClick={() => { onNew(); setSwitcherOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, cursor: "pointer", color: T.textSec, fontSize: 13 }}>
+                    <Plus size={14} /> New dashboard
+                  </div>
+                  <div onClick={() => { onSeed(); setSwitcherOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 7, cursor: "pointer", color: T.textSec, fontSize: 13, opacity: seeding ? 0.6 : 1 }}>
+                    <Sparkles size={14} /> {seeding ? "Seeding…" : "Seed Fevicol demo"}
+                  </div>
+                </div>
+              </>
+            ) : null}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 11, color: T.textMuted }}>{tagCount} live tags bound</span>
