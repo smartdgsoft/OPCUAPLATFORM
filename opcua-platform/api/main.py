@@ -16,6 +16,7 @@ from src.routers import closed_loop as closed_loop_router
 from src.routers import connectivity as connectivity_router
 from src.routers import problem_templates as templates_router
 from src.routers import calibration as calibration_router
+from src.routers import dashboards as dashboards_router
 from src.db.database import init_db, close_db
 from src.config.settings import settings
 from src.utils.logging import configure_logging
@@ -31,6 +32,7 @@ FEATURE_PRED    = os.getenv("FEATURE_TWIN_PREDICTIVE","false").lower() == "true"
 FEATURE_CL_ADV  = os.getenv("FEATURE_CLOSED_LOOP_ADVISORY","false").lower() == "true"
 FEATURE_HUB     = os.getenv("FEATURE_CONNECTOR_HUB","false").lower() == "true"
 FEATURE_TMPL    = os.getenv("FEATURE_PROBLEM_TEMPLATES","false").lower() == "true"
+FEATURE_DASH    = os.getenv("FEATURE_DASHBOARDS","false").lower() == "true"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -93,6 +95,9 @@ if FEATURE_HUB:
 if FEATURE_TMPL:
     app.include_router(templates_router.router, prefix="/api/templates", tags=["problem-templates"])
     app.include_router(calibration_router.router, prefix="/api/calibration", tags=["calibration"])
+
+if FEATURE_DASH:
+    app.include_router(dashboards_router.router, prefix="/api/dashboards", tags=["dashboards"])
     logger.info("feature_enabled", feature="problem_templates")
 
 @app.get("/api/health")
@@ -118,6 +123,7 @@ async def features():
         "closed_loop_advisory": FEATURE_CL_ADV,
         "connector_hub": FEATURE_HUB,
         "problem_templates": FEATURE_TMPL,
+        "dashboards":    FEATURE_DASH,
         "kafka":         os.getenv("KAFKA_ENABLED","false").lower() == "true",
         "alarm_eval":    os.getenv("FEATURE_ALARM_EVAL","true").lower() == "true",
         "scheduler":     os.getenv("FEATURE_SCHEDULER","false").lower() == "true",

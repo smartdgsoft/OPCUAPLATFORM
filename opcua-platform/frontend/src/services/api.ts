@@ -493,3 +493,55 @@ export const testConnectorConnection = (source_type: string, config: any): Promi
   api.post("/connectivity/test", { source_type, config }).then((r) => r.data);
 export const fetchConnectorTestResult = (testId: string): Promise<{ pending: boolean; ok?: boolean; detail?: string; streams?: number }> =>
   api.get(`/connectivity/test/${testId}`).then((r) => r.data);
+
+// ── Dashboards (config-driven operations screens) ───────────────────────────
+export interface WidgetBinding {
+  mode: "live" | "history" | "alarms" | "assets" | "static";
+  tag_id?: string | null; stream_key?: string | null;
+  tag_ids?: string[]; stream_keys?: string[];
+  resolution?: string; range?: string;
+  filter?: any;
+  spec?: { min?: number | null; max?: number | null; warn?: number | null; crit?: number | null; unit?: string };
+  series?: { label: string; color: string }[];
+}
+export interface DashboardWidget {
+  id: string; type: string; title?: string;
+  pos: { x: number; y: number; w: number; h: number };
+  binding: WidgetBinding;
+  demo?: any; options?: any;
+}
+export interface DashboardLayout {
+  grid: { cols: number; row_height: number };
+  theme?: string; header?: any;
+  widgets: DashboardWidget[];
+}
+export interface DashboardSummary {
+  id: string; name: string; description?: string | null;
+  demo_mode: boolean; is_default: boolean; created_at?: string; updated_at?: string;
+}
+export interface Dashboard extends DashboardSummary { layout: DashboardLayout; }
+
+export const fetchDashboards = (): Promise<DashboardSummary[]> =>
+  api.get<DashboardSummary[]>("/dashboards").then((r) => r.data);
+export const fetchDashboard = (id: string): Promise<Dashboard> =>
+  api.get<Dashboard>(`/dashboards/${id}`).then((r) => r.data);
+export const createDashboard = (b: Partial<Dashboard>): Promise<{ id: string }> =>
+  api.post("/dashboards", b).then((r) => r.data);
+export const updateDashboard = (id: string, b: Partial<Dashboard>): Promise<Dashboard> =>
+  api.put(`/dashboards/${id}`, b).then((r) => r.data);
+export const deleteDashboard = (id: string): Promise<void> =>
+  api.delete(`/dashboards/${id}`).then(() => undefined);
+export const seedFevicolDashboard = (): Promise<{ id: string; name: string }> =>
+  api.post("/dashboards/seed/fevicol").then((r) => r.data);
+
+// live values (batch) + history for dashboard widgets — reuse existing endpoints
+export interface TagLive { tag_id: string; value: number | string; quality: number; ts: string; }
+export const fetchLiveValues = (tagIds: string[]): Promise<TagLive[]> =>
+  tagIds.length ? api.get<TagLive[]>(`/tags/live`, { params: { tag_ids: tagIds }, paramsSerializer: { indexes: null } }).then((r) => r.data) : Promise.resolve([]);
+export const fetchTagHistory = (tagId: string, range: string, resolution: string): Promise<{ points: { t: string; v: number }[] }> =>
+  api.get(`/history/${tagId}`, { params: { range, resolution } }).then((r) => {
+    const d: any = r.data;
+    const pts = (d.points ?? d.data ?? d.values ?? []).map((p: any) => ({
+      t: p.t ?? p.time ?? p.bucket ?? p.ts, v: p.v ?? p.value ?? p.value_num ?? p.avg }));
+    return { points: pts };
+  });
